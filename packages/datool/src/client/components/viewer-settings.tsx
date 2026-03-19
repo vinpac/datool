@@ -2,6 +2,7 @@ import * as React from "react"
 import {
   DownloadIcon,
   EllipsisIcon,
+  LayoutGridIcon,
   MoonIcon,
   Settings2Icon,
   SunIcon,
@@ -38,9 +39,12 @@ type ViewerSettingsColumn = {
 
 type ViewerSettingsProps = {
   columns: ViewerSettingsColumn[]
+  groupedColumnIds: string[]
   isDisabled?: boolean
   onExportCsv: () => void
   onExportMarkdown: () => void
+  onClearGrouping: () => void
+  onToggleGrouping: (columnId: string, grouped: boolean) => void
   onToggleColumn: (columnId: string, visible: boolean) => void
   className?: string
 }
@@ -69,14 +73,26 @@ const THEME_OPTIONS: Array<{
 
 export function ViewerSettings({
   columns,
+  groupedColumnIds,
   isDisabled = false,
   onExportCsv,
   onExportMarkdown,
+  onClearGrouping,
+  onToggleGrouping,
   onToggleColumn,
   className,
 }: ViewerSettingsProps) {
   const { theme, setTheme } = useTheme()
   const canExport = !isDisabled && columns.length > 0
+  const groupedLabels = React.useMemo(
+    () =>
+      groupedColumnIds.flatMap((columnId) => {
+        const column = columns.find((candidate) => candidate.id === columnId)
+
+        return column ? [column.label] : []
+      }),
+    [columns, groupedColumnIds]
+  )
 
   return (
     <DropdownMenu>
@@ -116,6 +132,57 @@ export function ViewerSettings({
                 }}
                 onCheckedChange={(checked) =>
                   onToggleColumn(column.id, checked === true)
+                }
+              >
+                <span className="flex min-w-0 items-center gap-2 pr-4">
+                  {column.kind ? (
+                    <DataTableColIcon
+                      kind={column.kind}
+                      className="size-4 shrink-0 text-muted-foreground"
+                    />
+                  ) : null}
+                  <span className="truncate">{column.label}</span>
+                </span>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger
+            className="min-h-9 text-sm"
+            disabled={isDisabled || columns.length === 0}
+          >
+            <LayoutGridIcon className="size-4 text-muted-foreground" />
+            Group rows
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="max-h-80 w-64 overflow-y-auto">
+            <DropdownMenuLabel>
+              {groupedLabels.length > 0
+                ? `Grouped by ${groupedLabels.join(", ")}`
+                : "Group rows by field"}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="min-h-9 text-sm"
+              disabled={groupedColumnIds.length === 0}
+              onSelect={(event) => {
+                event.preventDefault()
+                onClearGrouping()
+              }}
+            >
+              Clear grouping
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {columns.map((column) => (
+              <DropdownMenuCheckboxItem
+                key={column.id}
+                checked={groupedColumnIds.includes(column.id)}
+                className="min-h-9 text-sm"
+                onSelect={(event) => {
+                  event.preventDefault()
+                }}
+                onCheckedChange={(checked) =>
+                  onToggleGrouping(column.id, checked === true)
                 }
               >
                 <span className="flex min-w-0 items-center gap-2 pr-4">

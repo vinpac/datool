@@ -16,6 +16,10 @@ Create `datool.config.ts` in your project root:
 import { defineDatoolConfig, sources } from "datool"
 
 export default defineDatoolConfig({
+  dateFormat: {
+    dateStyle: "short",
+    timeStyle: "medium",
+  },
   streams: {
     file: {
       ...sources.file({
@@ -77,6 +81,10 @@ The CLI will:
 import { defineDatoolConfig, sources } from "datool"
 
 export default defineDatoolConfig({
+  dateFormat: {
+    dateStyle: "short",
+    timeStyle: "medium",
+  },
   server: {
     port: 3210,
   },
@@ -130,6 +138,12 @@ export default defineDatoolConfig({
   },
 })
 ```
+
+Top-level config options include:
+
+- `dateFormat`: optional global `Intl.DateTimeFormatOptions` for `kind: "date"` columns
+- `server`: optional server overrides such as `host` and `port`
+- `streams`: stream definitions
 
 Each stream defines:
 

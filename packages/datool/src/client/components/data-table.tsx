@@ -46,7 +46,10 @@ import {
   inferDataTableColumnKind,
   type DataTableColumnKind,
 } from "./data-table-col-icon"
-import type { DatoolEnumColorMap } from "../../shared/types"
+import type {
+  DatoolDateFormat,
+  DatoolEnumColorMap,
+} from "../../shared/types"
 import { Button } from "@/components/ui/button"
 import {
   ContextMenu,
@@ -170,6 +173,7 @@ export type DataTableProps<TData extends DataTableRow> = {
   columnVisibility?: VisibilityState
   columns?: DataTableColumnConfig<TData>[]
   data: TData[]
+  dateFormat?: DatoolDateFormat
   edgeHorizontalPadding?: React.CSSProperties["paddingLeft"]
   enableRowSelection?: boolean
   filterPlaceholder?: string
@@ -184,6 +188,7 @@ export type DataTableProps<TData extends DataTableRow> = {
   resolveColumnHighlightTerms?: (columnId: string, query: string) => string[]
   rowActions?: DataTableRowAction<TData>[]
   rowClassName?: (row: TData) => string | undefined
+  rowStyle?: (row: TData) => React.CSSProperties | undefined
   rowHeight?: number
   statePersistence?: "localStorage" | "none" | "url"
 }
@@ -511,6 +516,7 @@ function resolveColumnId<TData extends DataTableRow>(
 function buildColumns<TData extends DataTableRow>(
   data: TData[],
   columns?: DataTableColumnConfig<TData>[],
+  dateFormat?: DatoolDateFormat,
   showRowSelectionColumn?: boolean,
   showRowActionButtonsColumn?: boolean,
   rowActionsColumnSize?: number
@@ -556,6 +562,7 @@ function buildColumns<TData extends DataTableRow>(
         column.cell
           ? column.cell({ row: row.original, value: getValue() })
           : fallbackCellValue(getValue(), kind, {
+              dateFormat,
               enumColors: kind === "enum" ? column.enumColors : undefined,
               enumOptions: kind === "enum" ? column.enumOptions : undefined,
             }),
@@ -697,6 +704,31 @@ function shouldIgnoreRowSelectionTarget(target: EventTarget | null) {
           '[role="button"]',
           '[role="link"]',
           '[role="menuitem"]',
+        ].join(",")
+      )
+    )
+  )
+}
+
+function shouldIgnoreSelectionShortcutTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        [
+          "a",
+          "button",
+          "input",
+          "select",
+          "textarea",
+          "[contenteditable=true]",
+          '[role="button"]',
+          '[role="combobox"]',
+          '[role="dialog"]',
+          '[role="menu"]',
+          '[role="menuitem"]',
+          '[role="searchbox"]',
+          '[role="textbox"]',
         ].join(",")
       )
     )
@@ -1125,6 +1157,7 @@ function DataTableView<TData extends DataTableRow>({
   columnVisibility: controlledColumnVisibility,
   columns,
   data,
+  dateFormat,
   edgeHorizontalPadding = "16px",
   enableRowSelection = false,
   filterPlaceholder = "Search across visible columns",
@@ -1139,6 +1172,7 @@ function DataTableView<TData extends DataTableRow>({
   resolveColumnHighlightTerms,
   rowActions,
   rowClassName,
+  rowStyle,
   rowHeight = 48,
   statePersistence = "localStorage",
 }: DataTableProps<TData>) {
@@ -1232,6 +1266,7 @@ function DataTableView<TData extends DataTableRow>({
       buildColumns(
         data,
         columnsWithEnumOptions,
+        dateFormat,
         showRowSelectionColumn,
         showRowActionButtonsColumn,
         rowActionsColumnSize
@@ -1239,6 +1274,7 @@ function DataTableView<TData extends DataTableRow>({
     [
       columnsWithEnumOptions,
       data,
+      dateFormat,
       rowActionsColumnSize,
       showRowActionButtonsColumn,
       showRowSelectionColumn,
@@ -1577,6 +1613,13 @@ function DataTableView<TData extends DataTableRow>({
 
     onGlobalFilterChange?.(value)
   }
+  const clearRowSelection = React.useCallback(() => {
+    setRowSelection({})
+    dragSelectionRef.current = null
+    dragPointerRef.current = null
+    setIsDragSelecting(false)
+    selectionAnchorIdRef.current = null
+  }, [])
 
   const isColumnHighlightEnabled = React.useCallback(
     (columnId: string, meta: DataTableColumnMeta) =>
@@ -1817,6 +1860,27 @@ function DataTableView<TData extends DataTableRow>({
       window.cancelAnimationFrame(frameId)
     }
   }, [isDragSelecting, updateDragSelectionFromPointer])
+  React.useEffect(() => {
+    if (!canSelectRows) {
+      return
+    }
+
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape" ||
+        Object.keys(rowSelection).length === 0 ||
+        shouldIgnoreSelectionShortcutTarget(event.target)
+      ) {
+        return
+      }
+
+      clearRowSelection()
+    }
+
+    window.addEventListener("keydown", handleWindowKeyDown)
+
+    return () => window.removeEventListener("keydown", handleWindowKeyDown)
+  }, [canSelectRows, clearRowSelection, rowSelection])
 
   return (
     <section
@@ -1923,6 +1987,7 @@ function DataTableView<TData extends DataTableRow>({
                       }
                     }}
                     style={{
+                      ...rowStyle?.(row.original),
                       minHeight: rowHeight,
                       transform: `translateY(${virtualRow.start}px)`,
                       width: table.getTotalSize(),
@@ -1974,6 +2039,7 @@ function DataTableView<TData extends DataTableRow>({
                       return (
                         <DataTableBodyCell
                           cell={cell}
+                          dateFormat={dateFormat}
                           highlightTerms={highlightTerms}
                           key={cell.id}
                           paddingLeft={

@@ -5,6 +5,7 @@ type PersistedTableState = {
   columnSizing?: Record<string, number>
   columnVisibility?: VisibilityState
   globalFilter?: string
+  groupBy?: string[]
   highlightedColumns?: Record<string, boolean>
   sorting?: unknown[]
 }
@@ -23,7 +24,9 @@ function getTableUrlParam(tableId: string) {
 
 function isDatoolUrlParam(key: string) {
   return (
-    key.startsWith(`${DATA_TABLE_URL_PARAM_PREFIX}${LOG_VIEWER_TABLE_ID_PREFIX}`) ||
+    key.startsWith(
+      `${DATA_TABLE_URL_PARAM_PREFIX}${LOG_VIEWER_TABLE_ID_PREFIX}`
+    ) ||
     (key.startsWith(`${LOG_VIEWER_TABLE_ID_PREFIX}-`) && key.endsWith("-search"))
   )
 }
@@ -55,6 +58,14 @@ function sanitizeColumnVisibility(
       validIds.has(columnId)
     )
   )
+}
+
+function sanitizeGroupBy(groupBy: string[] | undefined, columnIds: string[]) {
+  const validIds = new Set(columnIds)
+
+  return (groupBy ?? []).filter((columnId, index, values) => {
+    return validIds.has(columnId) && values.indexOf(columnId) === index
+  })
 }
 
 function cleanUpDatoolParams(url: URL, tableId: string) {
@@ -89,7 +100,10 @@ export function readDatoolSearch(tableId: string) {
     return ""
   }
 
-  return new URL(window.location.href).searchParams.get(getSearchUrlParam(tableId)) ?? ""
+  return (
+    new URL(window.location.href).searchParams.get(getSearchUrlParam(tableId)) ??
+    ""
+  )
 }
 
 export function readDatoolColumnVisibility(
@@ -102,15 +116,21 @@ export function readDatoolColumnVisibility(
   )
 }
 
+export function readDatoolGrouping(tableId: string, columnIds: string[]) {
+  return sanitizeGroupBy(readPersistedTableState(tableId)?.groupBy, columnIds)
+}
+
 export function writeDatoolUrlState({
   columnIds,
   columnVisibility,
+  groupBy,
   search,
   selectedStreamId,
   tableId,
 }: {
   columnIds: string[]
   columnVisibility: VisibilityState
+  groupBy: string[]
   search: string
   selectedStreamId: string | null
   tableId: string
@@ -125,6 +145,7 @@ export function writeDatoolUrlState({
     columnVisibility,
     columnIds
   )
+  const nextGroupBy = sanitizeGroupBy(groupBy, columnIds)
   const nextTableState = {
     ...readPersistedTableState(tableId),
   } satisfies PersistedTableState
@@ -147,6 +168,12 @@ export function writeDatoolUrlState({
     nextTableState.columnVisibility = nextColumnVisibility
   } else {
     delete nextTableState.columnVisibility
+  }
+
+  if (nextGroupBy.length > 0) {
+    nextTableState.groupBy = nextGroupBy
+  } else {
+    delete nextTableState.groupBy
   }
 
   if (Object.keys(nextTableState).length > 0) {

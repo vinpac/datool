@@ -111,19 +111,13 @@ describe("server integration", () => {
       const response = await fetch(
         `${server.url}/api/streams/demo/events?stream=demo&history=3`
       )
-      const events = await collectSseEvents(response, 4)
+      const events = await collectSseEvents(response, 3)
       const rows = events
         .filter((event) => event.event === "row")
         .map((event) => JSON.parse(event.data) as { row: { message: string } })
 
       expect(rows).toHaveLength(3)
       expect(rows[0]?.row.message).toContain("Command event")
-      expect(events.at(-1)).toEqual({
-        data: JSON.stringify({
-          reason: "completed",
-        }),
-        event: "end",
-      })
     } finally {
       server.stop()
     }

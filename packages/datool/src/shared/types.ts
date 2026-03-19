@@ -89,6 +89,8 @@ export type DatoolActionButtonConfig =
       variant?: DatoolActionButtonVariant
     }
 
+export type DatoolDateFormat = Intl.DateTimeFormatOptions
+
 export type DatoolColumn = {
   accessorKey: string
   align?: "left" | "center" | "right"
@@ -168,6 +170,7 @@ export type DatoolStream<Row extends Record<string, unknown>> = {
 }
 
 export type DatoolConfig = {
+  dateFormat?: DatoolDateFormat
   server?: {
     host?: string
     port?: number
@@ -195,6 +198,7 @@ export type DatoolClientAction = {
 }
 
 export type DatoolClientConfig = {
+  dateFormat?: DatoolDateFormat
   streams: DatoolClientStream[]
 }
 

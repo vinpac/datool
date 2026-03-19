@@ -7,7 +7,10 @@ import type { DataTableColumnKind } from "./data-table-col-icon"
 import type { DataTableColumnMeta } from "./data-table-header-col"
 import { EnumBadge } from "./enum-badge"
 import { cn } from "@/lib/utils"
-import type { DatoolEnumColorMap } from "../../shared/types"
+import type {
+  DatoolDateFormat,
+  DatoolEnumColorMap,
+} from "../../shared/types"
 
 function getAlignmentClassName(align: DataTableColumnMeta["align"] = "left") {
   switch (align) {
@@ -20,16 +23,22 @@ function getAlignmentClassName(align: DataTableColumnMeta["align"] = "left") {
   }
 }
 
-function formatDate(value: string | number | Date) {
+function formatDate(
+  value: string | number | Date,
+  dateFormat?: DatoolDateFormat
+) {
   const date = value instanceof Date ? value : new Date(value)
 
   if (Number.isNaN(date.getTime())) {
     return String(value)
   }
 
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-  }).format(date)
+  return new Intl.DateTimeFormat(
+    undefined,
+    dateFormat ?? {
+      dateStyle: "medium",
+    }
+  ).format(date)
 }
 
 function formatNumber(value: number) {
@@ -42,6 +51,7 @@ function fallbackCellValue(
   value: unknown,
   kind?: DataTableColumnKind,
   options?: {
+    dateFormat?: DatoolDateFormat
     enumColors?: DatoolEnumColorMap
     enumOptions?: string[]
   }
@@ -80,7 +90,7 @@ function fallbackCellValue(
   }
 
   if (kind === "date" || value instanceof Date) {
-    return formatDate(value as string | number | Date)
+    return formatDate(value as string | number | Date, options?.dateFormat)
   }
 
   if (Array.isArray(value) || typeof value === "object") {
@@ -197,11 +207,13 @@ export function DataTableCheckbox({
 
 export function DataTableBodyCell<TData>({
   cell,
+  dateFormat,
   highlightTerms = [],
   paddingLeft,
   paddingRight,
 }: {
   cell: Cell<TData, unknown>
+  dateFormat?: DatoolDateFormat
   highlightTerms?: string[]
   paddingLeft?: React.CSSProperties["paddingLeft"]
   paddingRight?: React.CSSProperties["paddingRight"]
@@ -221,6 +233,7 @@ export function DataTableBodyCell<TData>({
     ? renderHighlightedText(rawValue, highlightTerms, rendered)
     : (rendered ??
         fallbackCellValue(rawValue, meta.kind, {
+          dateFormat,
           enumColors: meta.enumColors,
           enumOptions: meta.enumOptions,
         }))

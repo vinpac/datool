@@ -41,6 +41,7 @@ import {
 } from "@/lib/data-table-search"
 import {
   readDatoolColumnVisibility,
+  readDatoolGrouping,
   readDatoolSearch,
   readSelectedStreamId,
   writeDatoolUrlState,
@@ -59,8 +60,87 @@ type ViewerExportColumn = {
   label: string
 }
 
+const GROUPED_ROW_GAP = 32
+
 function toActionRows(rows: ViewerRow[]): Record<string, unknown>[] {
   return rows.map(({ __datoolRowId: _datoolRowId, ...row }) => row)
+}
+
+function stringifyGroupingValue(value: unknown) {
+  if (value === undefined) {
+    return "undefined:"
+  }
+
+  if (value === null) {
+    return "null:"
+  }
+
+  if (value instanceof Date) {
+    return `date:${value.toISOString()}`
+  }
+
+  if (typeof value === "object") {
+    try {
+      return `object:${JSON.stringify(value)}`
+    } catch {
+      return `object:${String(value)}`
+    }
+  }
+
+  return `${typeof value}:${String(value)}`
+}
+
+function groupViewerRows(
+  rows: ViewerRow[],
+  columns: ViewerExportColumn[]
+): {
+  groupStartRowIds: Set<string>
+  rows: ViewerRow[]
+} {
+  if (columns.length === 0 || rows.length === 0) {
+    return {
+      groupStartRowIds: new Set<string>(),
+      rows,
+    }
+  }
+
+  const groupOrder: string[] = []
+  const rowsByGroup = new Map<string, ViewerRow[]>()
+
+  for (const row of rows) {
+    const groupKey = columns
+      .map((column) =>
+        stringifyGroupingValue(getValueAtPath(row, column.accessorKey))
+      )
+      .join("\u001f")
+    const existingRows = rowsByGroup.get(groupKey)
+
+    if (existingRows) {
+      existingRows.push(row)
+      continue
+    }
+
+    groupOrder.push(groupKey)
+    rowsByGroup.set(groupKey, [row])
+  }
+
+  const groupedRows: ViewerRow[] = []
+  const groupStartRowIds = new Set<string>()
+
+  groupOrder.forEach((groupKey, index) => {
+    const groupRows = rowsByGroup.get(groupKey) ?? []
+
+    if (index > 0 && groupRows[0]) {
+      groupStartRowIds.add(groupRows[0].__datoolRowId)
+    }
+
+    groupedRows.push(...groupRows)
+  })
+
+  return {
+    groupStartRowIds,
+    rows: groupedRows,
+  }
 }
 
 function applyActionRowChanges(
@@ -347,7 +427,10 @@ function DatoolTable({
   isLoadingConfig,
   rows,
   settingsColumns,
+  groupedColumnIds,
+  groupedRowStartIds,
   selectedStreamId,
+  setGroupedColumnIds,
   setColumnVisibility,
   searchInputRef,
   handleExport,
@@ -369,7 +452,10 @@ function DatoolTable({
     label: string
     visible: boolean
   }>
+  groupedColumnIds: string[]
+  groupedRowStartIds: Set<string>
   selectedStreamId: string | null
+  setGroupedColumnIds: React.Dispatch<React.SetStateAction<string[]>>
   setColumnVisibility: React.Dispatch<React.SetStateAction<VisibilityState>>
   searchInputRef: React.RefObject<DataTableSearchInputHandle | null>
   handleExport: (format: "csv" | "md") => void
@@ -378,6 +464,19 @@ function DatoolTable({
   setShouldConnect: React.Dispatch<React.SetStateAction<boolean>>
 }) {
   const { search, setSearch } = useDataTableContext<ViewerRow>()
+  const resolveRowStyle = React.useCallback(
+    (row: ViewerRow) => {
+      if (!groupedRowStartIds.has(row.__datoolRowId)) {
+        return undefined
+      }
+
+      return {
+        borderTop: `${GROUPED_ROW_GAP}px solid var(--color-table-gap)`,
+        boxShadow: `inset 0 1px 0 0 var(--color-border)`,
+      } satisfies React.CSSProperties
+    },
+    [groupedRowStartIds]
+  )
   const rowActions = React.useMemo<DataTableRowAction<ViewerRow>[]>(
     () => {
       const configActions =
@@ -526,9 +625,24 @@ function DatoolTable({
           />
           <ViewerSettings
             columns={settingsColumns}
+            groupedColumnIds={groupedColumnIds}
             isDisabled={isLoadingConfig || !activeStream}
             onExportCsv={() => handleExport("csv")}
             onExportMarkdown={() => handleExport("md")}
+            onClearGrouping={() => setGroupedColumnIds([])}
+            onToggleGrouping={(columnId, grouped) =>
+              setGroupedColumnIds((current) => {
+                if (grouped) {
+                  return current.includes(columnId)
+                    ? current
+                    : [...current, columnId]
+                }
+
+                return current.filter(
+                  (currentColumnId) => currentColumnId !== columnId
+                )
+              })
+            }
             onToggleColumn={(columnId, visible) =>
               setColumnVisibility((current) => ({
                 ...current,
@@ -545,7 +659,7 @@ function DatoolTable({
 
       <div className="min-h-0 flex-1">
         {activeStream ? (
-          <DataTable rowActions={rowActions} />
+          <DataTable rowActions={rowActions} rowStyle={resolveRowStyle} />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             No stream selected.
@@ -582,6 +696,7 @@ export default function App() {
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
     {}
   )
+  const [groupedColumnIds, setGroupedColumnIds] = React.useState<string[]>([])
   const eventSourceRef = React.useRef<EventSource | null>(null)
   const hasInitializedStreamRef = React.useRef(false)
   const [hydratedTableId, setHydratedTableId] = React.useState<string | null>(
@@ -677,6 +792,23 @@ export default function App() {
       exportColumns.filter((column) => columnVisibility[column.id] !== false),
     [columnVisibility, exportColumns]
   )
+  const exportColumnsById = React.useMemo(
+    () => new Map(exportColumns.map((column) => [column.id, column])),
+    [exportColumns]
+  )
+  const groupedExportColumns = React.useMemo(
+    () =>
+      groupedColumnIds.flatMap((columnId) => {
+        const column = exportColumnsById.get(columnId)
+
+        return column ? [column] : []
+      }),
+    [exportColumnsById, groupedColumnIds]
+  )
+  const groupedRowsState = React.useMemo(
+    () => groupViewerRows(rows, groupedExportColumns),
+    [groupedExportColumns, rows]
+  )
   const isConnecting = Boolean(selectedStreamId) && shouldConnect && !isConnected
   const columnIds = React.useMemo(
     () => exportColumns.map((column) => column.id),
@@ -694,12 +826,14 @@ export default function App() {
 
   React.useEffect(() => {
     if (!activeStream) {
+      setGroupedColumnIds([])
       setHydratedTableId(null)
       return
     }
 
     setSearch(readDatoolSearch(tableId))
     setColumnVisibility(readDatoolColumnVisibility(tableId, columnIds))
+    setGroupedColumnIds(readDatoolGrouping(tableId, columnIds))
     setHydratedTableId(tableId)
   }, [activeStream, columnIds, tableId])
 
@@ -712,6 +846,7 @@ export default function App() {
       writeDatoolUrlState({
         columnIds,
         columnVisibility,
+        groupBy: groupedColumnIds,
         search,
         selectedStreamId,
         tableId,
@@ -723,6 +858,7 @@ export default function App() {
     activeStream,
     columnIds,
     columnVisibility,
+    groupedColumnIds,
     hydratedTableId,
     search,
     selectedStreamId,
@@ -740,6 +876,7 @@ export default function App() {
           setColumnVisibility(
             readDatoolColumnVisibility(nextTableId, columnIds)
           )
+          setGroupedColumnIds(readDatoolGrouping(nextTableId, columnIds))
           setHydratedTableId(nextTableId)
         }
 
@@ -853,8 +990,8 @@ export default function App() {
       const fileBaseName = `${sanitizeFilePart(activeStream.label)}-${timeStamp}`
       const content =
         format === "csv"
-          ? buildCsvContent(rows, visibleExportColumns)
-          : buildMarkdownContent(rows, visibleExportColumns)
+          ? buildCsvContent(groupedRowsState.rows, visibleExportColumns)
+          : buildMarkdownContent(groupedRowsState.rows, visibleExportColumns)
 
       downloadTextFile(
         content,
@@ -862,15 +999,16 @@ export default function App() {
         format === "csv" ? "text/csv" : "text/markdown"
       )
     },
-    [activeStream, rows, visibleExportColumns]
+    [activeStream, groupedRowsState.rows, visibleExportColumns]
   )
 
   return (
     <DataTableProvider
-      autoScrollToBottom
+      autoScrollToBottom={groupedColumnIds.length === 0}
       columnVisibility={columnVisibility}
       columns={columns}
-      data={rows}
+      data={groupedRowsState.rows}
+      dateFormat={config?.dateFormat}
       getRowId={(row) => row.__datoolRowId}
       height="100%"
       id={tableId}
@@ -889,8 +1027,11 @@ export default function App() {
         isConnected={isConnected}
         isConnecting={isConnecting}
         isLoadingConfig={isLoadingConfig}
+        groupedColumnIds={groupedColumnIds}
+        groupedRowStartIds={groupedRowsState.groupStartRowIds}
         rows={rows}
         settingsColumns={settingsColumns}
+        setGroupedColumnIds={setGroupedColumnIds}
         setColumnVisibility={setColumnVisibility}
         searchInputRef={searchInputRef}
         selectedStreamId={selectedStreamId}

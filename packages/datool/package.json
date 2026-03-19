@@ -1,6 +1,6 @@
 {
   "name": "datool",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "type": "module",
   "description": "Local-only config-driven log viewer with SSE streaming and a generic table UI.",
   "bin": {

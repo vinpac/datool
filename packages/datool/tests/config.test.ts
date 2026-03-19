@@ -35,6 +35,10 @@ describe("config loader", () => {
     await fs.writeFile(
       configPath,
       `export default {
+        dateFormat: {
+          dateStyle: "short",
+          timeStyle: "medium",
+        },
         streams: {
           demo: {
             actions: {
@@ -65,6 +69,10 @@ describe("config loader", () => {
 
     expect(loaded.configPath).toBe(configPath)
     expect(toClientConfig(loaded.config).streams[0]?.id).toBe("demo")
+    expect(toClientConfig(loaded.config).dateFormat).toEqual({
+      dateStyle: "short",
+      timeStyle: "medium",
+    })
     expect(toClientConfig(loaded.config).streams[0]?.actions).toEqual([
       {
         button: "outline",
@@ -121,5 +129,31 @@ describe("config loader", () => {
         cwd: tempDir,
       })
     ).rejects.toThrow("invalid icon")
+  })
+
+  test("fails fast for invalid dateFormat", async () => {
+    const tempDir = await createTempDir()
+
+    await fs.writeFile(
+      path.join(tempDir, "datool.config.ts"),
+      `export default {
+        dateFormat: "short",
+        streams: {
+          demo: {
+            label: "Demo",
+            columns: [{ accessorKey: "line", header: "Line" }],
+            open({ emit }) { emit("hello") },
+            parseLine({ line }) { return { line } },
+          },
+        },
+      }`,
+      "utf8"
+    )
+
+    await expect(
+      loadDatoolConfig({
+        cwd: tempDir,
+      })
+    ).rejects.toThrow("dateFormat must be an object")
   })
 })

@@ -124,6 +124,25 @@ function assertActionShape(
   assertActionButtonShape(streamId, actionId, value.button)
 }
 
+function assertDateFormatShape(value: unknown) {
+  if (value === undefined) {
+    return
+  }
+
+  if (!isRecord(value) || Array.isArray(value)) {
+    throw new Error("datool.config.ts dateFormat must be an object.")
+  }
+
+  try {
+    new Intl.DateTimeFormat(
+      undefined,
+      value as Intl.DateTimeFormatOptions
+    )
+  } catch {
+    throw new Error("datool.config.ts defines an invalid dateFormat.")
+  }
+}
+
 function assertStreamShape(streamId: string, value: unknown) {
   if (!isRecord(value)) {
     throw new Error(`Stream "${streamId}" must be an object.`)
@@ -198,6 +217,8 @@ export function validateDatoolConfig(
     throw new Error("datool.config.ts must export an object.")
   }
 
+  assertDateFormatShape(config.dateFormat)
+
   if (!isRecord(config.streams) || Object.keys(config.streams).length === 0) {
     throw new Error("datool.config.ts must define at least one stream.")
   }
@@ -209,6 +230,7 @@ export function validateDatoolConfig(
 
 export function toClientConfig(config: DatoolConfig): DatoolClientConfig {
   return {
+    dateFormat: config.dateFormat,
     streams: Object.entries(config.streams).map(([id, stream]) => ({
       actions: Object.entries(stream.actions ?? {}).map(([actionId, action]) => ({
         button: action.button,
