@@ -1,0 +1,11 @@
+{
+  "name": "command-jsonl-example",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "datool": "workspace:*"
+  },
+  "scripts": {
+    "dev": "bunx datool"
+  }
+}

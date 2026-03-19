@@ -1,0 +1,11 @@
+{
+  "name": "file-tail-example",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "datool": "workspace:*"
+  },
+  "scripts": {
+    "dev": "bunx datool"
+  }
+}

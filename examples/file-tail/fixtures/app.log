@@ -1,0 +1,6 @@
+{"ts":"2026-03-18T17:00:00.000Z","level":"info","message":"Booting server","meta":{"worker":"alpha","attempt":1}}
+{"ts":"2026-03-18T17:00:01.000Z","level":"info","message":"Connecting queue","meta":{"worker":"alpha","attempt":1}}
+{"ts":"2026-03-18T17:00:02.000Z","level":"warn","message":"Retrying upstream","meta":{"worker":"beta","attempt":2}}
+{"ts":"2026-03-18T17:00:03.000Z","level":"info","message":"Processing batch","meta":{"worker":"beta","attempt":2}}
+{"ts":"2026-03-18T17:00:04.000Z","level":"error","message":"Failed request","meta":{"worker":"gamma","attempt":3}}
+{"ts":"2026-03-18T17:00:05.000Z","level":"info","message":"Recovered worker","meta":{"worker":"gamma","attempt":4}}
