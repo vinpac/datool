@@ -60,8 +60,6 @@ type ViewerExportColumn = {
   label: string
 }
 
-const GROUPED_ROW_GAP = 32
-
 function toActionRows(rows: ViewerRow[]): Record<string, unknown>[] {
   return rows.map(({ __datoolRowId: _datoolRowId, ...row }) => row)
 }
@@ -93,15 +91,9 @@ function stringifyGroupingValue(value: unknown) {
 function groupViewerRows(
   rows: ViewerRow[],
   columns: ViewerExportColumn[]
-): {
-  groupStartRowIds: Set<string>
-  rows: ViewerRow[]
-} {
+): ViewerRow[] {
   if (columns.length === 0 || rows.length === 0) {
-    return {
-      groupStartRowIds: new Set<string>(),
-      rows,
-    }
+    return rows
   }
 
   const groupOrder: string[] = []
@@ -125,22 +117,14 @@ function groupViewerRows(
   }
 
   const groupedRows: ViewerRow[] = []
-  const groupStartRowIds = new Set<string>()
 
   groupOrder.forEach((groupKey, index) => {
     const groupRows = rowsByGroup.get(groupKey) ?? []
 
-    if (index > 0 && groupRows[0]) {
-      groupStartRowIds.add(groupRows[0].__datoolRowId)
-    }
-
     groupedRows.push(...groupRows)
   })
 
-  return {
-    groupStartRowIds,
-    rows: groupedRows,
-  }
+  return groupedRows
 }
 
 function applyActionRowChanges(
@@ -428,7 +412,6 @@ function DatoolTable({
   rows,
   settingsColumns,
   groupedColumnIds,
-  groupedRowStartIds,
   selectedStreamId,
   setGroupedColumnIds,
   setColumnVisibility,
@@ -453,7 +436,6 @@ function DatoolTable({
     visible: boolean
   }>
   groupedColumnIds: string[]
-  groupedRowStartIds: Set<string>
   selectedStreamId: string | null
   setGroupedColumnIds: React.Dispatch<React.SetStateAction<string[]>>
   setColumnVisibility: React.Dispatch<React.SetStateAction<VisibilityState>>
@@ -464,19 +446,6 @@ function DatoolTable({
   setShouldConnect: React.Dispatch<React.SetStateAction<boolean>>
 }) {
   const { search, setSearch } = useDataTableContext<ViewerRow>()
-  const resolveRowStyle = React.useCallback(
-    (row: ViewerRow) => {
-      if (!groupedRowStartIds.has(row.__datoolRowId)) {
-        return undefined
-      }
-
-      return {
-        borderTop: `${GROUPED_ROW_GAP}px solid var(--color-table-gap)`,
-        boxShadow: `inset 0 1px 0 0 var(--color-border)`,
-      } satisfies React.CSSProperties
-    },
-    [groupedRowStartIds]
-  )
   const rowActions = React.useMemo<DataTableRowAction<ViewerRow>[]>(
     () => {
       const configActions =
@@ -659,7 +628,7 @@ function DatoolTable({
 
       <div className="min-h-0 flex-1">
         {activeStream ? (
-          <DataTable rowActions={rowActions} rowStyle={resolveRowStyle} />
+          <DataTable rowActions={rowActions} />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             No stream selected.
@@ -990,8 +959,8 @@ export default function App() {
       const fileBaseName = `${sanitizeFilePart(activeStream.label)}-${timeStamp}`
       const content =
         format === "csv"
-          ? buildCsvContent(groupedRowsState.rows, visibleExportColumns)
-          : buildMarkdownContent(groupedRowsState.rows, visibleExportColumns)
+          ? buildCsvContent(groupedRowsState, visibleExportColumns)
+          : buildMarkdownContent(groupedRowsState, visibleExportColumns)
 
       downloadTextFile(
         content,
@@ -999,7 +968,7 @@ export default function App() {
         format === "csv" ? "text/csv" : "text/markdown"
       )
     },
-    [activeStream, groupedRowsState.rows, visibleExportColumns]
+    [activeStream, groupedRowsState, visibleExportColumns]
   )
 
   return (
@@ -1007,12 +976,14 @@ export default function App() {
       autoScrollToBottom={groupedColumnIds.length === 0}
       columnVisibility={columnVisibility}
       columns={columns}
-      data={groupedRowsState.rows}
+      data={rows}
       dateFormat={config?.dateFormat}
       getRowId={(row) => row.__datoolRowId}
+      grouping={groupedColumnIds}
       height="100%"
       id={tableId}
       onColumnVisibilityChange={setColumnVisibility}
+      onGroupingChange={setGroupedColumnIds}
       onSearchChange={setSearch}
       search={search}
       rowHeight={20}
@@ -1028,7 +999,6 @@ export default function App() {
         isConnecting={isConnecting}
         isLoadingConfig={isLoadingConfig}
         groupedColumnIds={groupedColumnIds}
-        groupedRowStartIds={groupedRowsState.groupStartRowIds}
         rows={rows}
         settingsColumns={settingsColumns}
         setGroupedColumnIds={setGroupedColumnIds}

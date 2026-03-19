@@ -1,13 +1,19 @@
 /* eslint-disable react-hooks/incompatible-library, react-refresh/only-export-components */
 import {
+  getExpandedRowModel,
+  getGroupedRowModel,
   functionalUpdate,
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
   useReactTable,
+  type AggregationFnOption,
+  type Column,
   type ColumnDef,
   type ColumnFiltersState,
+  type ExpandedState,
   type FilterFn,
+  type GroupingState,
   type OnChangeFn,
   type Row,
   type RowData,
@@ -19,6 +25,8 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual"
 import {
   Check,
+  ChevronDown,
+  ChevronRight,
   CircleAlert,
   EyeOff,
   LayoutGrid,
@@ -145,10 +153,13 @@ export type DataTableRowAction<TData extends DataTableRow> = {
 export type DataTableColumnConfig<TData extends DataTableRow> = {
   accessorFn?: (row: TData) => unknown
   accessorKey?: Extract<keyof TData, string>
+  aggregatedCell?: ColumnDef<TData>["aggregatedCell"]
+  aggregationFn?: AggregationFnOption<TData>
   align?: DataTableAlign
   cell?: (args: { row: TData; value: unknown }) => React.ReactNode
   cellClassName?: string
   enableFiltering?: boolean
+  enableGrouping?: boolean
   enableHiding?: boolean
   enableResizing?: boolean
   enableSorting?: boolean
@@ -164,6 +175,7 @@ export type DataTableColumnConfig<TData extends DataTableRow> = {
   minWidth?: number
   truncate?: boolean
   width?: number
+  getGroupingValue?: (row: TData) => unknown
 }
 
 export type DataTableProps<TData extends DataTableRow> = {
@@ -178,6 +190,7 @@ export type DataTableProps<TData extends DataTableRow> = {
   enableRowSelection?: boolean
   filterPlaceholder?: string
   globalFilter?: string
+  grouping?: GroupingState
   getRowId?: (row: TData, index: number) => string
   height?: React.CSSProperties["height"]
   highlightQuery?: string
@@ -185,6 +198,7 @@ export type DataTableProps<TData extends DataTableRow> = {
   onColumnFiltersChange?: (value: ColumnFiltersState) => void
   onColumnVisibilityChange?: (value: VisibilityState) => void
   onGlobalFilterChange?: (value: string) => void
+  onGroupingChange?: (value: GroupingState) => void
   resolveColumnHighlightTerms?: (columnId: string, query: string) => string[]
   rowActions?: DataTableRowAction<TData>[]
   rowClassName?: (row: TData) => string | undefined
@@ -231,6 +245,7 @@ type PersistedTableState = {
   highlightedColumns?: Record<string, boolean>
   columnVisibility?: VisibilityState
   globalFilter?: string
+  grouping?: GroupingState
   sorting?: SortingState
 }
 
@@ -406,6 +421,7 @@ function getPersistedUrlParam(id: string) {
 function isPersistedStateEmpty(state: PersistedTableState) {
   return (
     (state.sorting?.length ?? 0) === 0 &&
+    (state.grouping?.length ?? 0) === 0 &&
     (state.columnFilters?.length ?? 0) === 0 &&
     Object.keys(state.highlightedColumns ?? {}).length === 0 &&
     Object.keys(state.columnVisibility ?? {}).length === 0 &&
@@ -500,6 +516,119 @@ function inferWidth(kind: DataTableColumnKind) {
   }
 }
 
+type DateRangeAggregate = {
+  durationMs: number
+  endMs: number
+  startMs: number
+}
+
+function toTimestamp(value: unknown) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.getTime()
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null
+  }
+
+  if (typeof value === "string") {
+    const timestamp = Date.parse(value)
+
+    return Number.isNaN(timestamp) ? null : timestamp
+  }
+
+  return null
+}
+
+function buildDateRangeAggregate<TData extends DataTableRow>(
+  columnId: string,
+  leafRows: Row<TData>[]
+) {
+  let startMs = Number.POSITIVE_INFINITY
+  let endMs = Number.NEGATIVE_INFINITY
+
+  for (const row of leafRows) {
+    const timestamp = toTimestamp(row.getValue(columnId))
+
+    if (timestamp === null) {
+      continue
+    }
+
+    startMs = Math.min(startMs, timestamp)
+    endMs = Math.max(endMs, timestamp)
+  }
+
+  if (
+    startMs === Number.POSITIVE_INFINITY ||
+    endMs === Number.NEGATIVE_INFINITY
+  ) {
+    return null
+  }
+
+  return {
+    durationMs: Math.max(0, endMs - startMs),
+    endMs,
+    startMs,
+  } satisfies DateRangeAggregate
+}
+
+function isDateRangeAggregate(value: unknown): value is DateRangeAggregate {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "durationMs" in value &&
+    "endMs" in value &&
+    "startMs" in value
+  )
+}
+
+function formatSummaryNumber(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  }).format(value)
+}
+
+function formatDuration(durationMs: number) {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000))
+  const days = Math.floor(totalSeconds / 86_400)
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600)
+  const minutes = Math.floor((totalSeconds % 3_600) / 60)
+  const seconds = totalSeconds % 60
+  const parts = [
+    days > 0 ? `${days}d` : null,
+    hours > 0 ? `${hours}h` : null,
+    minutes > 0 ? `${minutes}m` : null,
+    seconds > 0 || totalSeconds === 0 ? `${seconds}s` : null,
+  ].filter(Boolean)
+
+  return parts.join(" ")
+}
+
+function getColumnHeaderLabel<TData extends DataTableRow>(
+  column: Column<TData, unknown>
+) {
+  return typeof column.columnDef.header === "string"
+    ? column.columnDef.header
+    : formatHeaderLabel(column.id)
+}
+
+function resolveGroupedPadding(
+  padding: React.CSSProperties["paddingLeft"],
+  depth: number
+) {
+  const indent = depth * 16
+
+  if (typeof padding === "number") {
+    return padding + indent
+  }
+
+  if (typeof padding === "string") {
+    return `calc(${padding} + ${indent}px)`
+  }
+
+  return indent
+}
+
 function resolveColumnId<TData extends DataTableRow>(
   column: DataTableColumnConfig<TData>,
   index: number
@@ -558,6 +687,14 @@ function buildColumns<TData extends DataTableRow>(
     return {
       accessorFn: column.accessorFn,
       accessorKey: column.accessorKey,
+      aggregatedCell: column.aggregatedCell,
+      aggregationFn:
+        column.aggregationFn ??
+        (kind === "date"
+          ? buildDateRangeAggregate
+          : kind === "number"
+            ? "sum"
+            : undefined),
       cell: ({ getValue, row }) =>
         column.cell
           ? column.cell({ row: row.original, value: getValue() })
@@ -567,10 +704,12 @@ function buildColumns<TData extends DataTableRow>(
               enumOptions: kind === "enum" ? column.enumOptions : undefined,
             }),
       enableGlobalFilter: column.enableFiltering ?? true,
+      enableGrouping: column.enableGrouping ?? true,
       filterFn: column.filterFn,
       enableHiding: column.enableHiding ?? true,
       enableResizing: column.enableResizing ?? true,
       enableSorting: column.enableSorting ?? true,
+      getGroupingValue: column.getGroupingValue,
       header: column.header ?? formatHeaderLabel(id),
       id,
       maxSize: column.maxWidth ?? 420,
@@ -589,6 +728,7 @@ function buildColumns<TData extends DataTableRow>(
       ...builtColumns,
       {
         cell: () => null,
+        enableGrouping: false,
         enableGlobalFilter: false,
         enableHiding: false,
         enableResizing: false,
@@ -610,13 +750,16 @@ function buildColumns<TData extends DataTableRow>(
     {
       cell: ({ row }) => (
         <div className="flex items-center justify-center">
-          <DataTableCheckbox
-            ariaLabel={`Select row ${row.index + 1}`}
-            checked={row.getIsSelected()}
-            onCheckedChange={(checked) => row.toggleSelected(checked)}
-          />
+          {row.getCanSelect() ? (
+            <DataTableCheckbox
+              ariaLabel={`Select row ${row.index + 1}`}
+              checked={row.getIsSelected()}
+              onCheckedChange={(checked) => row.toggleSelected(checked)}
+            />
+          ) : null}
         </div>
       ),
+      enableGrouping: false,
       enableGlobalFilter: false,
       enableHiding: false,
       enableResizing: false,
@@ -655,6 +798,7 @@ function buildColumns<TData extends DataTableRow>(
     ...withSelectionColumn,
     {
       cell: () => null,
+      enableGrouping: false,
       enableGlobalFilter: false,
       enableHiding: false,
       enableResizing: false,
@@ -1150,6 +1294,21 @@ function RowActionButtonGroup<TData extends DataTableRow>({
   )
 }
 
+function GroupSummaryBadge({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/80 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+      <span className="text-foreground">{value}</span>
+      <span>{label}</span>
+    </span>
+  )
+}
+
 function DataTableView<TData extends DataTableRow>({
   autoScrollToBottom = false,
   autoScrollToBottomThreshold = 96,
@@ -1162,6 +1321,7 @@ function DataTableView<TData extends DataTableRow>({
   enableRowSelection = false,
   filterPlaceholder = "Search across visible columns",
   globalFilter,
+  grouping: controlledGrouping,
   getRowId,
   height = 620,
   highlightQuery = "",
@@ -1169,6 +1329,7 @@ function DataTableView<TData extends DataTableRow>({
   onColumnFiltersChange,
   onColumnVisibilityChange,
   onGlobalFilterChange,
+  onGroupingChange,
   resolveColumnHighlightTerms,
   rowActions,
   rowClassName,
@@ -1195,6 +1356,9 @@ function DataTableView<TData extends DataTableRow>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     () => persistedState.columnFilters ?? []
   )
+  const [grouping, setGrouping] = React.useState<GroupingState>(
+    () => persistedState.grouping ?? []
+  )
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const [rowActionStatuses, setRowActionStatuses] = React.useState<
     Record<string, RowActionStatus>
@@ -1217,9 +1381,11 @@ function DataTableView<TData extends DataTableRow>({
   const isColumnFiltersControlled = controlledColumnFilters !== undefined
   const isColumnVisibilityControlled = controlledColumnVisibility !== undefined
   const isGlobalFilterControlled = globalFilter !== undefined
+  const isGroupingControlled = controlledGrouping !== undefined
   const resolvedColumnFilters = controlledColumnFilters ?? columnFilters
   const resolvedColumnVisibility =
     controlledColumnVisibility ?? columnVisibility
+  const resolvedGrouping = controlledGrouping ?? grouping
   const hasSelectionActions = rowActions
     ? hasSelectionScopedAction(rowActions)
     : false
@@ -1348,28 +1514,52 @@ function DataTableView<TData extends DataTableRow>({
       resolvedColumnVisibility,
     ]
   )
+  const handleGroupingChange = React.useCallback<OnChangeFn<GroupingState>>(
+    (updater) => {
+      const nextValue = functionalUpdate(updater, resolvedGrouping)
+
+      if (!isGroupingControlled) {
+        setGrouping(nextValue)
+      }
+
+      onGroupingChange?.(nextValue)
+    },
+    [isGroupingControlled, onGroupingChange, resolvedGrouping]
+  )
+  const expandedState = React.useMemo<ExpandedState>(
+    () => (resolvedGrouping.length > 0 ? true : {}),
+    [resolvedGrouping.length]
+  )
 
   const table = useReactTable({
     columnResizeMode: "onChange",
     columns: tableColumns,
     data,
     enableColumnResizing: true,
-    enableRowSelection: canSelectRows,
+    enableGrouping: true,
+    enableRowSelection: canSelectRows ? (row) => !row.getIsGrouped() : false,
+    enableSubRowSelection: false,
     getCoreRowModel: getCoreRowModel(),
+    getExpandedRowModel: getExpandedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getGroupedRowModel: getGroupedRowModel(),
     getRowId,
     getSortedRowModel: getSortedRowModel(),
+    groupedColumnMode: false,
     globalFilterFn: globalFilterFn as FilterFn<TData>,
     onColumnFiltersChange: handleColumnFiltersChange,
     onColumnSizingChange: handleColumnSizingChange,
     onColumnVisibilityChange: handleColumnVisibilityChange,
+    onGroupingChange: handleGroupingChange,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
     state: {
       columnFilters: resolvedColumnFilters,
       columnSizing,
       columnVisibility: resolvedColumnVisibility,
+      expanded: expandedState,
       globalFilter: deferredSearch.trim(),
+      grouping: resolvedGrouping,
       rowSelection,
       sorting,
     },
@@ -1380,6 +1570,10 @@ function DataTableView<TData extends DataTableRow>({
   const hasAutoScrolledOnMountRef = React.useRef(false)
   const previousDataLengthRef = React.useRef(0)
   const rows = table.getRowModel().rows
+  const selectableRows = React.useMemo(
+    () => rows.filter((row) => row.getCanSelect()),
+    [rows]
+  )
   const selectedTableRows = table.getSelectedRowModel().rows
   const resolvedHeight = typeof height === "number" ? height : 0
   const initialOffsetRef = React.useRef(
@@ -1421,6 +1615,9 @@ function DataTableView<TData extends DataTableRow>({
     }
     setHighlightedColumns(nextState.highlightedColumns ?? {})
     setColumnFilters(nextState.columnFilters ?? [])
+    if (!isGroupingControlled) {
+      setGrouping(nextState.grouping ?? [])
+    }
     setSearchDraft(nextState.globalFilter ?? "")
     setRowSelection({})
     dragSelectionRef.current = null
@@ -1432,7 +1629,13 @@ function DataTableView<TData extends DataTableRow>({
     }
     rowActionStatusTimersRef.current = {}
     setRowActionStatuses({})
-  }, [id, isColumnFiltersControlled, isColumnVisibilityControlled, statePersistence])
+  }, [
+    id,
+    isColumnFiltersControlled,
+    isColumnVisibilityControlled,
+    isGroupingControlled,
+    statePersistence,
+  ])
 
   React.useEffect(() => {
     if (!isColumnFiltersControlled) {
@@ -1449,6 +1652,14 @@ function DataTableView<TData extends DataTableRow>({
 
     setColumnVisibility(controlledColumnVisibility)
   }, [controlledColumnVisibility, isColumnVisibilityControlled])
+
+  React.useEffect(() => {
+    if (!isGroupingControlled) {
+      return
+    }
+
+    setGrouping(controlledGrouping)
+  }, [controlledGrouping, isGroupingControlled])
 
   React.useEffect(() => {
     if (!isGlobalFilterControlled) {
@@ -1473,6 +1684,9 @@ function DataTableView<TData extends DataTableRow>({
       }
       setHighlightedColumns(nextState.highlightedColumns ?? {})
       setColumnFilters(nextState.columnFilters ?? [])
+      if (!isGroupingControlled) {
+        setGrouping(nextState.grouping ?? [])
+      }
       setSearchDraft(nextState.globalFilter ?? "")
       setRowSelection({})
       dragSelectionRef.current = null
@@ -1484,7 +1698,7 @@ function DataTableView<TData extends DataTableRow>({
     window.addEventListener("popstate", syncFromUrl)
 
     return () => window.removeEventListener("popstate", syncFromUrl)
-  }, [id, isColumnVisibilityControlled, statePersistence])
+  }, [id, isColumnVisibilityControlled, isGroupingControlled, statePersistence])
 
   React.useEffect(() => {
     if (isGlobalFilterControlled || isColumnFiltersControlled) {
@@ -1497,6 +1711,7 @@ function DataTableView<TData extends DataTableRow>({
       highlightedColumns,
       columnVisibility: resolvedColumnVisibility,
       globalFilter: deferredSearch.trim(),
+      grouping: resolvedGrouping,
       sorting,
     })
   }, [
@@ -1507,7 +1722,9 @@ function DataTableView<TData extends DataTableRow>({
     id,
     isColumnFiltersControlled,
     isGlobalFilterControlled,
+    isGroupingControlled,
     resolvedColumnVisibility,
+    resolvedGrouping,
     sorting,
     statePersistence,
   ])
@@ -1632,10 +1849,10 @@ function DataTableView<TData extends DataTableRow>({
       rowId: string,
       baseSelection: RowSelectionState = {}
     ) => {
-      const anchorIndex = rows.findIndex(
+      const anchorIndex = selectableRows.findIndex(
         (candidateRow) => candidateRow.id === anchorId
       )
-      const rowIndex = rows.findIndex(
+      const rowIndex = selectableRows.findIndex(
         (candidateRow) => candidateRow.id === rowId
       )
 
@@ -1651,13 +1868,13 @@ function DataTableView<TData extends DataTableRow>({
       setRowSelection({
         ...baseSelection,
         ...Object.fromEntries(
-          rows
+          selectableRows
             .slice(start, end + 1)
             .map((candidateRow) => [candidateRow.id, true])
         ),
       })
     },
-    [rows]
+    [selectableRows]
   )
   const selectSingleRow = React.useCallback((rowId: string) => {
     selectionAnchorIdRef.current = rowId
@@ -1704,6 +1921,7 @@ function DataTableView<TData extends DataTableRow>({
       if (
         event.button !== 0 ||
         !canSelectRows ||
+        !row.getCanSelect() ||
         shouldIgnoreRowSelectionTarget(event.target)
       ) {
         return
@@ -1765,6 +1983,7 @@ function DataTableView<TData extends DataTableRow>({
     (event: React.MouseEvent<HTMLTableRowElement>, row: Row<TData>) => {
       if (
         !canSelectRows ||
+        !row.getCanSelect() ||
         event.buttons !== 1 ||
         shouldIgnoreRowSelectionTarget(event.target) ||
         !dragSelectionRef.current
@@ -1780,7 +1999,7 @@ function DataTableView<TData extends DataTableRow>({
   )
   const handleRowContextMenu = React.useCallback(
     (row: Row<TData>) => {
-      if (!canSelectRows) {
+      if (!canSelectRows || !row.getCanSelect()) {
         return
       }
 
@@ -1958,101 +2177,224 @@ function DataTableView<TData extends DataTableRow>({
             ) : (
               virtualRows.map((virtualRow) => {
                 const row = rows[virtualRow.index]
-                const visibleRowActions = resolveVisibleRowActions(
-                  rowActions ?? [],
-                  row,
-                  selectedTableRows
-                )
+                const isGroupRow = row.getIsGrouped()
+                const visibleRowActions = isGroupRow
+                  ? []
+                  : resolveVisibleRowActions(
+                      rowActions ?? [],
+                      row,
+                      selectedTableRows
+                    )
                 const isSelected = row.getIsSelected()
+                const groupVisibleCells = row.getVisibleCells()
+                const groupingColumn = row.groupingColumnId
+                  ? table.getColumn(row.groupingColumnId)
+                  : undefined
+                const groupingMeta = groupingColumn?.columnDef.meta as
+                  | DataTableColumnMeta
+                  | undefined
+                const groupingValue = groupingColumn
+                  ? fallbackCellValue(row.groupingValue, groupingMeta?.kind, {
+                      dateFormat,
+                      enumColors: groupingMeta?.enumColors,
+                      enumOptions: groupingMeta?.enumOptions,
+                    })
+                  : null
+                const groupSummaries = isGroupRow
+                  ? groupVisibleCells.flatMap((cell) => {
+                      const meta = (cell.column.columnDef.meta ??
+                        {}) as DataTableColumnMeta
+                      const value = cell.getValue()
+                      const label = getColumnHeaderLabel(cell.column)
+
+                      if (meta.kind === "date" && isDateRangeAggregate(value)) {
+                        return [
+                          {
+                            label: `${label} span`,
+                            value: formatDuration(value.durationMs),
+                          },
+                        ]
+                      }
+
+                      if (meta.kind === "number" && typeof value === "number") {
+                        return [
+                          {
+                            label: `${label} sum`,
+                            value: formatSummaryNumber(value),
+                          },
+                        ]
+                      }
+
+                      return []
+                    })
+                  : []
                 const rowContent = (
                   <tr
                     aria-selected={isSelected}
                     className={cn(
-                      "absolute left-0 flex w-full bg-card transition-colors",
-                      canSelectRows && "cursor-pointer",
-                      rowClassName?.(row.original),
-                      isSelected &&
+                      "absolute left-0 flex w-full transition-colors",
+                      isGroupRow
+                        ? "bg-transparent"
+                        : "bg-card",
+                      canSelectRows &&
+                        row.getCanSelect() &&
+                        "cursor-pointer",
+                      !isGroupRow && rowClassName?.(row.original),
+                      !isGroupRow &&
+                        isSelected &&
                         "bg-primary/10 before:absolute before:-top-px before:left-0 before:h-px before:w-full before:bg-primary before:content-[''] after:absolute after:bottom-0 after:left-0 after:h-px after:w-full after:bg-primary after:content-['']"
                     )}
                     data-index={virtualRow.index}
                     data-row-id={row.id}
-                    data-state={isSelected ? "selected" : undefined}
+                    data-state={!isGroupRow && isSelected ? "selected" : undefined}
                     key={row.id}
-                    onContextMenu={() => handleRowContextMenu(row)}
-                    onMouseDown={(event) => handleRowMouseDown(event, row)}
-                    onMouseEnter={(event) => handleRowMouseEnter(event, row)}
+                    onContextMenu={
+                      isGroupRow ? undefined : () => handleRowContextMenu(row)
+                    }
+                    onMouseDown={
+                      isGroupRow
+                        ? undefined
+                        : (event) => handleRowMouseDown(event, row)
+                    }
+                    onMouseEnter={
+                      isGroupRow
+                        ? undefined
+                        : (event) => handleRowMouseEnter(event, row)
+                    }
                     ref={(node) => {
                       if (node) {
                         rowVirtualizer.measureElement(node)
                       }
                     }}
                     style={{
-                      ...rowStyle?.(row.original),
-                      minHeight: rowHeight,
+                      ...(!isGroupRow ? rowStyle?.(row.original) : undefined),
+                      minHeight: isGroupRow ? Math.max(rowHeight, 44) : rowHeight,
                       transform: `translateY(${virtualRow.start}px)`,
                       width: table.getTotalSize(),
                     }}
                   >
-                    {row.getVisibleCells().map((cell, index, visibleCells) => {
-                      const meta = (cell.column.columnDef.meta ??
-                        {}) as DataTableColumnMeta
-                      const isActionsCell = cell.column.id === "__actions"
-                      const highlightTerms =
-                        meta.kind === "text" &&
-                        resolveColumnHighlightTerms &&
-                        isColumnHighlightEnabled(cell.column.id, meta)
-                          ? resolveColumnHighlightTerms(
-                              cell.column.id,
-                              highlightQuery
-                            )
-                          : []
+                    {isGroupRow ? (
+                      <td
+                        className="flex shrink-0 items-center border-y border-border/70 px-2 py-2 align-middle text-xs text-muted-foreground"
+                        style={{
+                          background:
+                            "var(--color-table-gap, color-mix(in oklab, var(--color-muted) 84%, transparent))",
+                          paddingLeft: resolveGroupedPadding(
+                            edgeHorizontalPadding,
+                            row.depth
+                          ),
+                          paddingRight: edgeHorizontalPadding,
+                          width: table.getTotalSize(),
+                        }}
+                      >
+                        <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+                          {row.getCanExpand() ? (
+                            <button
+                              aria-label={
+                                row.getIsExpanded()
+                                  ? "Collapse group"
+                                  : "Expand group"
+                              }
+                              className="inline-flex size-6 items-center justify-center rounded-md border border-border/70 bg-background/80 text-foreground transition-colors hover:bg-background"
+                              onClick={() => row.toggleExpanded()}
+                              type="button"
+                            >
+                              {row.getIsExpanded() ? (
+                                <ChevronDown className="size-3.5" />
+                              ) : (
+                                <ChevronRight className="size-3.5" />
+                              )}
+                            </button>
+                          ) : null}
+                          {groupingColumn ? (
+                            <span className="inline-flex items-center gap-2 text-xs">
+                              <span className="font-medium text-foreground">
+                                {getColumnHeaderLabel(groupingColumn)}
+                              </span>
+                              <span className="min-w-0 truncate text-foreground">
+                                {groupingValue}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="font-medium text-foreground">
+                              Group
+                            </span>
+                          )}
+                          <GroupSummaryBadge
+                            label="rows"
+                            value={formatSummaryNumber(row.getLeafRows().length)}
+                          />
+                          {groupSummaries.map((summary) => (
+                            <GroupSummaryBadge
+                              key={`${row.id}-${summary.label}`}
+                              label={summary.label}
+                              value={summary.value}
+                            />
+                          ))}
+                        </div>
+                      </td>
+                    ) : (
+                      row.getVisibleCells().map((cell, index, visibleCells) => {
+                        const meta = (cell.column.columnDef.meta ??
+                          {}) as DataTableColumnMeta
+                        const isActionsCell = cell.column.id === "__actions"
+                        const highlightTerms =
+                          meta.kind === "text" &&
+                          resolveColumnHighlightTerms &&
+                          isColumnHighlightEnabled(cell.column.id, meta)
+                            ? resolveColumnHighlightTerms(
+                                cell.column.id,
+                                highlightQuery
+                              )
+                            : []
 
-                      if (isActionsCell) {
+                        if (isActionsCell) {
+                          return (
+                            <td
+                              className={cn(
+                                "flex shrink-0 border-b border-border px-2 py-1.5 align-middle text-sm text-foreground justify-end text-right",
+                                meta.cellClassName
+                              )}
+                              key={cell.id}
+                              style={{
+                                paddingLeft:
+                                  index === 0 ? edgeHorizontalPadding : undefined,
+                                paddingRight:
+                                  index === visibleCells.length - 1
+                                    ? edgeHorizontalPadding
+                                    : undefined,
+                                width: cell.column.getSize(),
+                              }}
+                            >
+                              <div className="w-full min-w-0">
+                                <RowActionButtonGroup
+                                  resolvedActions={visibleRowActions}
+                                  setStatus={setRowActionStatus}
+                                  statuses={rowActionStatuses}
+                                />
+                              </div>
+                            </td>
+                          )
+                        }
+
                         return (
-                          <td
-                            className={cn(
-                              "flex shrink-0 border-b border-border px-2 py-1.5 align-middle text-sm text-foreground justify-end text-right",
-                              meta.cellClassName
-                            )}
+                          <DataTableBodyCell
+                            cell={cell}
+                            dateFormat={dateFormat}
+                            highlightTerms={highlightTerms}
                             key={cell.id}
-                            style={{
-                              paddingLeft:
-                                index === 0 ? edgeHorizontalPadding : undefined,
-                              paddingRight:
-                                index === visibleCells.length - 1
-                                  ? edgeHorizontalPadding
-                                  : undefined,
-                              width: cell.column.getSize(),
-                            }}
-                          >
-                            <div className="w-full min-w-0">
-                              <RowActionButtonGroup
-                                resolvedActions={visibleRowActions}
-                                setStatus={setRowActionStatus}
-                                statuses={rowActionStatuses}
-                              />
-                            </div>
-                          </td>
+                            paddingLeft={
+                              index === 0 ? edgeHorizontalPadding : undefined
+                            }
+                            paddingRight={
+                              index === visibleCells.length - 1
+                                ? edgeHorizontalPadding
+                                : undefined
+                            }
+                          />
                         )
-                      }
-
-                      return (
-                        <DataTableBodyCell
-                          cell={cell}
-                          dateFormat={dateFormat}
-                          highlightTerms={highlightTerms}
-                          key={cell.id}
-                          paddingLeft={
-                            index === 0 ? edgeHorizontalPadding : undefined
-                          }
-                          paddingRight={
-                            index === visibleCells.length - 1
-                              ? edgeHorizontalPadding
-                              : undefined
-                          }
-                        />
-                      )
-                    })}
+                      })
+                    )}
                   </tr>
                 )
 
