@@ -6,6 +6,8 @@
     "datool": "workspace:*"
   },
   "scripts": {
-    "dev": "bunx datool"
+    "build": "bunx datool build",
+    "dev": "bunx datool dev",
+    "serve": "bunx datool"
   }
 }

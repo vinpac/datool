@@ -1,4 +1,5 @@
 import fs from "fs/promises"
+import net from "node:net"
 import path from "path"
 
 import { describe, expect, test } from "bun:test"
@@ -11,6 +12,71 @@ type SseEvent = {
 }
 
 const workspaceRoot = path.resolve(import.meta.dir, "..", "..", "..")
+
+async function listenOnPort(port: number) {
+  const server = net.createServer()
+
+  await new Promise<void>((resolve, reject) => {
+    const handleError = (error: Error) => {
+      reject(error)
+    }
+
+    server.once("error", handleError)
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", handleError)
+      resolve()
+    })
+  })
+
+  return server
+}
+
+async function closeNetServer(server: net.Server) {
+  if (!server.listening) {
+    return
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error)
+        return
+      }
+
+      resolve()
+    })
+  })
+}
+
+async function reserveConsecutivePorts(count: number) {
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const servers: net.Server[] = []
+
+    try {
+      const firstServer = await listenOnPort(0)
+      const firstAddress = firstServer.address()
+
+      if (!firstAddress || typeof firstAddress === "string") {
+        throw new Error("Unable to resolve reserved port block.")
+      }
+
+      servers.push(firstServer)
+
+      for (let offset = 1; offset < count; offset += 1) {
+        servers.push(await listenOnPort(firstAddress.port + offset))
+      }
+
+      return {
+        port: firstAddress.port,
+        servers,
+      }
+    } catch {
+      await Promise.allSettled(servers.map((server) => closeNetServer(server)))
+    }
+  }
+
+  throw new Error("Unable to reserve consecutive ports for test.")
+}
 
 async function collectSseEvents(
   response: Response,
@@ -81,6 +147,10 @@ describe("server integration", () => {
 
       const configResponse = await fetch(`${server.url}/api/config`)
       const config = (await configResponse.json()) as {
+        pages: Array<{
+          path: string
+          title: string
+        }>
         streams: Array<{
           actions: Array<{
             button?: string | false
@@ -92,6 +162,12 @@ describe("server integration", () => {
         }>
       }
 
+      expect(config.pages).toEqual([
+        expect.objectContaining({
+          path: "/",
+          title: "Home",
+        }),
+      ])
       expect(config.streams.map((stream) => stream.id)).toEqual(["demo"])
       expect(config.streams[0]?.actions).toEqual([
         {
@@ -202,6 +278,67 @@ describe("server integration", () => {
     } finally {
       await fs.writeFile(fixturePath, originalFixture, "utf8")
       server.stop()
+    }
+  })
+
+  test("serves the app shell for deep linked routes", async () => {
+    const cwd = path.join(workspaceRoot, "examples/file-tail")
+    const server = await startDatoolServer({
+      cwd,
+      port: 0,
+    })
+
+    try {
+      const response = await fetch(`${server.url}/runs/logs`)
+      const html = await response.text()
+
+      expect(response.ok).toBe(true)
+      expect(html).toContain('<div id="root"></div>')
+    } finally {
+      server.stop()
+    }
+  })
+
+  test("retries the next ports when the requested port is busy", async () => {
+    const cwd = path.join(workspaceRoot, "examples/command-jsonl")
+    const reserved = await reserveConsecutivePorts(1)
+
+    try {
+      const server = await startDatoolServer({
+        cwd,
+        port: reserved.port,
+      })
+
+      try {
+        expect(server.port).toBeGreaterThan(reserved.port)
+        expect(server.port).toBeLessThanOrEqual(reserved.port + 9)
+      } finally {
+        server.stop()
+      }
+    } finally {
+      await Promise.allSettled(
+        reserved.servers.map((server) => closeNetServer(server))
+      )
+    }
+  })
+
+  test("fails after trying 10 consecutive ports", async () => {
+    const cwd = path.join(workspaceRoot, "examples/command-jsonl")
+    const reserved = await reserveConsecutivePorts(10)
+
+    try {
+      await expect(
+        startDatoolServer({
+          cwd,
+          port: reserved.port,
+        })
+      ).rejects.toThrow(
+        `No available ports from ${reserved.port} to ${reserved.port + 9}.`
+      )
+    } finally {
+      await Promise.allSettled(
+        reserved.servers.map((server) => closeNetServer(server))
+      )
     }
   })
 })

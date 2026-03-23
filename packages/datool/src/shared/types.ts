@@ -75,9 +75,7 @@ export type DatoolActionButtonSize =
 
 export type DatoolIconName = (typeof LOG_VIEWER_ICON_NAMES)[number]
 export type DatoolEnumBadgeColor = (typeof DATOOL_ENUM_BADGE_COLORS)[number]
-export type DatoolEnumColorMap = Partial<
-  Record<string, DatoolEnumBadgeColor>
->
+export type DatoolEnumColorMap = Partial<Record<string, DatoolEnumBadgeColor>>
 
 export type DatoolActionButtonConfig =
   | false
@@ -154,41 +152,43 @@ export type DatoolAction<Row extends Record<string, unknown>> = {
     | Promise<DatoolActionResolveResult<Row>>
 }
 
-export type DatoolStream<Row extends Record<string, unknown>> = {
+export type DatoolOpenHandler = (
+  context: DatoolOpenContext
+) => void | Promise<void> | (() => void | Promise<void>)
+
+export type DatoolParseLineHandler<Row extends Record<string, unknown>> = (
+  context: DatoolParseLineContext
+) => Row | null | Promise<Row | null>
+
+export type DatoolGetRowIdHandler<Row extends Record<string, unknown>> = (
+  context: DatoolGetRowIdContext<Row>
+) => string | Promise<string>
+
+export type DatoolSource = {
+  open: DatoolOpenHandler
+}
+
+export type DatoolResolvedStream<Row extends Record<string, unknown>> = {
   actions?: Record<string, DatoolAction<Row>>
-  columns: DatoolColumn[]
-  getRowId?: (
-    context: DatoolGetRowIdContext<Row>
-  ) => string | Promise<string>
-  label: string
-  open: (
-    context: DatoolOpenContext
-  ) => void | Promise<void> | (() => void | Promise<void>)
-  parseLine: (
-    context: DatoolParseLineContext
-  ) => Row | null | Promise<Row | null>
+  getRowId?: DatoolGetRowIdHandler<Row>
+  label?: string
+  open: DatoolOpenHandler
+  parseLine: DatoolParseLineHandler<Row>
 }
 
-export type DatoolConfig = {
-  dateFormat?: DatoolDateFormat
-  server?: {
-    host?: string
-    port?: number
-  }
-  streams: Record<string, DatoolStream<Record<string, unknown>>>
+export type DatoolStreamDefinition<Row extends Record<string, unknown>> = {
+  actions?: Record<string, DatoolAction<Row>>
+  getRowId?: DatoolGetRowIdHandler<Row>
+  label?: string
+  open?: DatoolOpenHandler
+  parseLine?: DatoolParseLineHandler<Row>
+  source?: DatoolSource
 }
 
-export type DatoolSource = Pick<
-  DatoolStream<Record<string, unknown>>,
-  "open"
->
-
-export type DatoolClientStream = {
-  actions: DatoolClientAction[]
-  columns: DatoolColumn[]
-  id: string
-  label: string
-}
+export type DatoolStreamExport<Row extends Record<string, unknown>> =
+  | DatoolSource
+  | DatoolResolvedStream<Row>
+  | DatoolStreamDefinition<Row>
 
 export type DatoolClientAction = {
   button?: DatoolActionButtonConfig
@@ -197,9 +197,34 @@ export type DatoolClientAction = {
   label: string
 }
 
+export type DatoolClientStream = {
+  actions: DatoolClientAction[]
+  id: string
+  label: string
+}
+
+export type DatoolClientPage = {
+  filePath: string
+  id: string
+  path: string
+  title: string
+}
+
 export type DatoolClientConfig = {
   dateFormat?: DatoolDateFormat
+  pages: DatoolClientPage[]
   streams: DatoolClientStream[]
+}
+
+export type DatoolApp = {
+  dateFormat?: DatoolDateFormat
+  pages: DatoolClientPage[]
+  server?: {
+    host?: string
+    port?: number
+  }
+  streams: Record<string, DatoolResolvedStream<Record<string, unknown>>>
+  streamsPath: string
 }
 
 export type DatoolRowEvent = {

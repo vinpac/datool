@@ -10,8 +10,6 @@ describe("stream runtime", () => {
     await openStreamRuntime(
       "demo",
       {
-        columns: [],
-        label: "Demo",
         open({ emit, query }) {
           emit(`first:${query.get("history")}`)
           emit(`second:${query.get("history")}`)
@@ -50,8 +48,6 @@ describe("stream runtime", () => {
     await openStreamRuntime(
       "demo",
       {
-        columns: [],
-        label: "Demo",
         open({ emit }) {
           emit("ok")
           emit("bad")

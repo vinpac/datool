@@ -1,6 +1,6 @@
 import type {
   DatoolGetRowIdContext,
-  DatoolStream,
+  DatoolResolvedStream,
 } from "../shared/types"
 
 export type StreamRuntimeEventHandlers = {
@@ -25,7 +25,7 @@ async function resolveRowId(
   line: string,
   row: Record<string, unknown>,
   query: URLSearchParams,
-  getRowId: DatoolStream<Record<string, unknown>>["getRowId"]
+  getRowId: DatoolResolvedStream<Record<string, unknown>>["getRowId"]
 ) {
   if (!getRowId) {
     return `${streamId}:${index}`
@@ -42,7 +42,7 @@ async function resolveRowId(
 
 export async function openStreamRuntime(
   streamId: string,
-  stream: DatoolStream<Record<string, unknown>>,
+  stream: DatoolResolvedStream<Record<string, unknown>>,
   query: URLSearchParams,
   signal: AbortSignal,
   handlers: StreamRuntimeEventHandlers

@@ -1,6 +1,6 @@
 {
   "name": "datool",
-  "version": "0.0.6",
+  "version": "0.0.8",
   "type": "module",
   "description": "Local-only config-driven log viewer with SSE streaming and a generic table UI.",
   "bin": {
@@ -39,6 +39,7 @@
     "radix-ui": "^1.4.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-router-dom": "^7.0.0",
     "shadcn": "^4.0.8",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",

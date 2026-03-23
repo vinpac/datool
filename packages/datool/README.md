@@ -1,6 +1,6 @@
 # datool
 
-`datool` is a local-only log inspection package and CLI for arbitrary line-oriented streams. Projects define stream wiring in `datool.config.ts`, and `bunx datool` serves a minimal table UI backed by SSE.
+`datool` is a local-first streaming data app toolkit. Projects define stream backends in `datool/streams.ts`, build pages with `datool/**/*.tsx`, and run them with `datool dev`, `datool build`, or `datool`.
 
 ## Install
 
@@ -8,266 +8,206 @@
 bun add -d datool
 ```
 
-## Quick start
+## Quick Start
 
-Create `datool.config.ts` in your project root:
+Create `datool/streams.ts`:
 
 ```ts
-import { defineDatoolConfig, sources } from "datool"
+import { sources } from "datool"
 
-export default defineDatoolConfig({
-  dateFormat: {
-    dateStyle: "short",
-    timeStyle: "medium",
-  },
-  streams: {
-    file: {
-      ...sources.file({
-        path: "./app.log",
-      }),
-      actions: {
-        abort: {
-          button: "outline",
-          icon: "Trash",
-          label: "Abort Run",
-          resolve({ rows }) {
-            return rows.map((row) => ({
-              ...row,
-              message: `[aborted] ${String(row.message ?? "")}`,
-            }))
-          },
-        },
-      },
-      columns: [
-        { accessorKey: "ts", header: "Timestamp", kind: "date" },
-        {
-          accessorKey: "level",
-          enumColors: {
-            error: "red",
-            info: "blue",
-            warn: "amber",
-          },
-          header: "Level",
-          kind: "enum",
-        },
-        { accessorKey: "message", header: "Message" },
-        { accessorKey: "meta", header: "Meta", kind: "json", truncate: false },
-      ],
-      label: "Local File",
-      parseLine({ line }) {
-        return JSON.parse(line) as Record<string, unknown>
-      },
-    },
-  },
+export const logs = sources.file({
+  path: "./app.log",
+  defaultHistory: 100,
 })
+```
+
+Create a page in `datool/logs.tsx`:
+
+```tsx
+import { Table, type DatoolColumns } from "datool"
+
+const columns: DatoolColumns[] = [
+  {
+    accessorKey: "level",
+    header: "Level",
+    kind: "enum",
+    enumColors: {
+      error: "red",
+      warning: "yellow",
+      info: "blue",
+      log: "zinc",
+    },
+    width: 76,
+  },
+  {
+    accessorKey: "message",
+    header: "Message",
+    truncate: true,
+    width: 320,
+  },
+  {
+    accessorKey: "ts",
+    header: "Timestamp",
+    kind: "date",
+    width: 220,
+  },
+]
+
+export default function LogsPage() {
+  return <Table columns={columns} stream="logs" />
+}
 ```
 
 Then run:
 
 ```bash
-bunx datool
+bunx datool dev
 ```
 
-The CLI will:
+## CLI
 
-1. discover `datool.config.ts` in the current working directory
-2. bind to `127.0.0.1` by default
-3. print the local URL
-4. serve the table UI and SSE endpoints
+### `datool dev`
 
-## Config API
+- discovers `datool/streams.ts`
+- discovers all `datool/**/*.tsx` pages
+- generates `.datool/generated/manifest.ts`
+- starts the Bun API server
+- starts a Vite dev server for the routed app
 
-```ts
-import { defineDatoolConfig, sources } from "datool"
+### `datool build`
 
-export default defineDatoolConfig({
-  dateFormat: {
-    dateStyle: "short",
-    timeStyle: "medium",
-  },
-  server: {
-    port: 3210,
-  },
-  streams: {
-    prod: {
-      ...sources.ssh({
-        host: "example.com",
-        user: "dokku",
-        command: ({ query }) => {
-          const history = query.get("history") ?? "500"
-          return `tail -n ${history} -F /var/log/my-app.log`
-        },
-      }),
-      actions: {
-        restart: {
-          button: {
-            size: "sm",
-            variant: "outline",
-          },
-          icon: "RefreshCcw",
-          label: "Restart workers",
-          async resolve({ rows }) {
-            return rows.map((row) => ({
-              ...row,
-              level: "info",
-              message: `Restart requested for ${String(row.message ?? "")}`,
-            }))
-          },
-        },
-      },
-      columns: [
-        { accessorKey: "ts", header: "Timestamp", kind: "date" },
-        {
-          accessorKey: "level",
-          enumColors: {
-            error: "red",
-            info: "blue",
-            warn: "amber",
-          },
-          header: "Level",
-          kind: "enum",
-        },
-        { accessorKey: "message", header: "Message" },
-        { accessorKey: "payload", header: "Payload", kind: "json" },
-      ],
-      label: "Production",
-      parseLine({ line }) {
-        return JSON.parse(line) as Record<string, unknown>
-      },
-    },
-  },
-})
-```
+- regenerates the manifest
+- builds the project-specific client bundle into `.datool/client-dist`
 
-Top-level config options include:
+### `datool`
 
-- `dateFormat`: optional global `Intl.DateTimeFormatOptions` for `kind: "date"` columns
-- `server`: optional server overrides such as `host` and `port`
-- `streams`: stream definitions
+- builds the client bundle if needed
+- serves the built app and streaming API from the Bun server
 
-Each stream defines:
+## Streams
 
-- `label`: UI label
-- `columns`: serializable table schema
-- `actions`: optional config-driven row actions exposed in the actions column and row context menu
-- `parseLine({ line, query, streamId })`: converts each raw line into a row object or returns `null` to skip it
-- `open({ emit, query, signal })`: opens the underlying line stream
-- `getRowId(...)`: optional custom row id function
+Each named export in `datool/streams.ts` becomes a stream id.
 
-Enum columns can also define `enumColors` to pin specific values to named badge colors:
+### Bare source exports
+
+Bare sources default to JSONL parsing:
 
 ```ts
-{
-  accessorKey: "level",
-  kind: "enum",
-  enumColors: {
-    error: "red",
-    info: "blue",
-    warn: "amber",
-  },
-}
-```
+import { sources } from "datool"
 
-Available `enumColors` values:
-`"emerald"`, `"purple"`, `"sky"`, `"pink"`, `"red"`, `"zinc"`, `"lime"`, `"violet"`, `"fuchsia"`, `"teal"`, `"amber"`, `"rose"`, `"orange"`, `"cyan"`, `"indigo"`, `"yellow"`, `"green"`, `"coral"`, `"blue"`, `"stone"`.
-
-Any enum values not listed in `enumColors` continue using the default rotating color assignment.
-
-## Row actions
-
-Define stream actions in `actions`. Each action:
-
-- receives `rows`, `query`, `streamId`, and `actionId` on the backend
-- always runs against an array of rows
-- always appears in the row context menu
-- appears in the actions column when `button` is not `false`
-
-```ts
-actions: {
-  abort: {
-    button: "outline",
-    icon: "Trash",
-    label: "Abort Run",
-    async resolve({ rows }) {
-      return rows.map((row) => ({
-        ...row,
-        message: `[aborted] ${String(row.message ?? "")}`,
-      }))
-    },
-  },
-}
-```
-
-`button` can be:
-
-- `false` to hide the inline button while keeping the context menu action
-- a variant string such as `"outline"`
-- an object like `{ variant: "outline", size: "sm", label: "Abort" }`
-
-Action return values are interpreted like this:
-
-- `true` or `undefined`: no row changes
-- `false` or `null`: remove the targeted rows
-- `[]`: no row changes
-- `[nextRow, false, true]`: replace the first row, remove the second, keep the third
-- anything else: the frontend shows an error state
-
-## Built-in sources
-
-### `sources.file(...)`
-
-Tails a local file and optionally honors `history`.
-
-```ts
-sources.file({
-  defaultHistory: 5,
+export const logs = sources.file({
   path: "./app.log",
 })
 ```
 
-`defaultHistory` lets the file source emit existing lines on startup when the URL
-does not include a `history` query param.
+### Advanced streams
+
+Use `defineStream(...)` when you need custom parsing, row ids, labels, or actions:
+
+```ts
+import { defineStream, sources } from "datool"
+
+export const logs = defineStream({
+  label: "Workflow Logs",
+  source: sources.file({
+    path: "./workflow.log",
+    defaultHistory: 50,
+  }),
+  parseLine({ line }) {
+    return JSON.parse(line) as Record<string, unknown>
+  },
+  actions: {
+    abort: {
+      button: "outline",
+      icon: "Trash",
+      label: "Abort Run",
+      resolve({ rows }) {
+        return rows.map((row) => ({
+          ...row,
+          message: `[aborted] ${String(row.message ?? "")}`,
+        }))
+      },
+    },
+  },
+})
+```
+
+Optional named exports:
+
+- `dateFormat`: global `Intl.DateTimeFormatOptions`
+- `server`: `{ host?: string; port?: number }`
+
+## Pages And Routing
+
+- every `datool/**/*.tsx` file becomes a route
+- `datool/index.tsx` maps to `/`
+- `datool/logs.tsx` maps to `/logs`
+- `datool/runs/logs.tsx` maps to `/runs/logs`
+- the app renders inside the built-in sidebar shell
+
+`Table` pages can define custom cell rendering through `DatoolColumns`:
+
+```tsx
+import { Table, type DatoolColumns } from "datool"
+
+const columns: DatoolColumns[] = [
+  {
+    accessorKey: "workflowRunId",
+    header: "Run ID",
+    truncate: true,
+    cell({ value }) {
+      return <span className="font-mono text-xs">{String(value ?? "")}</span>
+    },
+  },
+]
+
+export default function RunsPage() {
+  return <Table columns={columns} stream="logs" />
+}
+```
+
+## Built-In Sources
+
+### `sources.file(...)`
+
+```ts
+sources.file({
+  path: "./app.log",
+  defaultHistory: 5,
+})
+```
 
 ### `sources.command(...)`
 
-Spawns a local process and streams stdout lines.
-
 ```ts
 sources.command({
-  command: ({ query }) => `bun run ./scripts/logs.ts ${query.get("history") ?? "10"}`,
+  command: ({ query }) =>
+    `bun run ./scripts/logs.ts ${query.get("history") ?? "10"}`,
 })
 ```
 
 ### `sources.ssh(...)`
 
-Runs a remote command over SSH and streams stdout lines.
-
 ```ts
 sources.ssh({
   host: "example.com",
   user: "dokku",
-  command: ({ query }) => `tail -n ${query.get("history") ?? "500"} -F /var/log/app.log`,
+  command: ({ query }) =>
+    `tail -n ${query.get("history") ?? "500"} -F /var/log/app.log`,
 })
 ```
 
-## URL query params
+## URL Query Params
 
-The UI and stream runtime share URL query params. Example:
+Table state stays in the URL, and stream backends still receive the full query string. For example:
 
 ```text
-http://127.0.0.1:3210/?stream=prod&history=500
+http://127.0.0.1:5173/logs?history=500
 ```
 
-- `stream` selects the active stream
-- any other query params are passed to both `open` and `parseLine`
+`history=500` is available to sources and parse functions, while table search/grouping/visibility state is stored in route-scoped URL params.
 
-## Security model
-
-- default bind host is `127.0.0.1`
-- the package is intended for local-only use
-- it will not expose publicly unless you explicitly set `server.host` or pass `--host`
-
-## Examples in this repo
+## Examples
 
 - [examples/command-jsonl](/Users/vinpac/lab/vite-app/examples/command-jsonl)
 - [examples/file-tail](/Users/vinpac/lab/vite-app/examples/file-tail)

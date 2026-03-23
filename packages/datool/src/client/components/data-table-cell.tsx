@@ -205,19 +205,131 @@ export function DataTableCheckbox({
   )
 }
 
-export function DataTableBodyCell<TData>({
-  cell,
-  dateFormat,
-  highlightTerms = [],
-  paddingLeft,
-  paddingRight,
-}: {
+type DataTableBodyCellProps<TData> = {
   cell: Cell<TData, unknown>
   dateFormat?: DatoolDateFormat
   highlightTerms?: string[]
   paddingLeft?: React.CSSProperties["paddingLeft"]
   paddingRight?: React.CSSProperties["paddingRight"]
-}) {
+}
+
+function areStringArraysEqual(left: string[] = [], right: string[] = []) {
+  if (left === right) {
+    return true
+  }
+
+  if (left.length !== right.length) {
+    return false
+  }
+
+  return left.every((value, index) => value === right[index])
+}
+
+function areDateFormatsEqual(
+  left?: DatoolDateFormat,
+  right?: DatoolDateFormat
+) {
+  if (left === right) {
+    return true
+  }
+
+  if (!left || !right) {
+    return left === right
+  }
+
+  const leftKeys = Object.keys(left) as Array<keyof DatoolDateFormat>
+  const rightKeys = Object.keys(right) as Array<keyof DatoolDateFormat>
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false
+  }
+
+  return leftKeys.every((key) => left[key] === right[key])
+}
+
+function areRecordValuesEqual(
+  left: Record<string, string | undefined> = {},
+  right: Record<string, string | undefined> = {}
+) {
+  if (left === right) {
+    return true
+  }
+
+  const leftEntries = Object.entries(left)
+  const rightEntries = Object.entries(right)
+
+  if (leftEntries.length !== rightEntries.length) {
+    return false
+  }
+
+  return leftEntries.every(([key, value]) => right[key] === value)
+}
+
+function areColumnMetaEqual(
+  left: DataTableColumnMeta = {},
+  right: DataTableColumnMeta = {}
+) {
+  return (
+    left.align === right.align &&
+    left.cellClassName === right.cellClassName &&
+    areRecordValuesEqual(left.enumColors, right.enumColors) &&
+    areStringArraysEqual(left.enumOptions, right.enumOptions) &&
+    left.headerClassName === right.headerClassName &&
+    left.highlightMatches === right.highlightMatches &&
+    left.kind === right.kind &&
+    left.sticky === right.sticky &&
+    left.truncate === right.truncate
+  )
+}
+
+function areCellsEquivalent<TData>(
+  left: Cell<TData, unknown>,
+  right: Cell<TData, unknown>
+) {
+  if (left === right) {
+    return true
+  }
+
+  if (left.id !== right.id) {
+    return false
+  }
+
+  if (left.column.getSize() !== right.column.getSize()) {
+    return false
+  }
+
+  if (left.column.id !== right.column.id) {
+    return false
+  }
+
+  if (left.row.original !== right.row.original) {
+    return false
+  }
+
+  const leftMeta = (left.column.columnDef.meta ?? {}) as DataTableColumnMeta
+  const rightMeta = (right.column.columnDef.meta ?? {}) as DataTableColumnMeta
+
+  if (!areColumnMetaEqual(leftMeta, rightMeta)) {
+    return false
+  }
+
+  if (leftMeta.kind === "selection") {
+    return (
+      left.row.getCanSelect() === right.row.getCanSelect() &&
+      left.row.getIsSelected() === right.row.getIsSelected()
+    )
+  }
+
+  return Object.is(left.getValue(), right.getValue())
+}
+
+function DataTableBodyCellInner<TData>({
+  cell,
+  dateFormat,
+  highlightTerms = [],
+  paddingLeft,
+  paddingRight,
+}: DataTableBodyCellProps<TData>) {
   const meta = (cell.column.columnDef.meta ?? {}) as DataTableColumnMeta
   const rawValue = cell.getValue()
   const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
@@ -267,5 +379,24 @@ export function DataTableBodyCell<TData>({
     </td>
   )
 }
+
+const MemoizedDataTableBodyCell = React.memo(
+  DataTableBodyCellInner,
+  <TData,>(
+    previousProps: DataTableBodyCellProps<TData>,
+    nextProps: DataTableBodyCellProps<TData>
+  ) =>
+    previousProps.paddingLeft === nextProps.paddingLeft &&
+    previousProps.paddingRight === nextProps.paddingRight &&
+    areDateFormatsEqual(previousProps.dateFormat, nextProps.dateFormat) &&
+    areStringArraysEqual(
+      previousProps.highlightTerms,
+      nextProps.highlightTerms
+    ) &&
+    areCellsEquivalent(previousProps.cell, nextProps.cell)
+)
+
+export const DataTableBodyCell =
+  MemoizedDataTableBodyCell as typeof DataTableBodyCellInner
 
 export { fallbackCellValue }

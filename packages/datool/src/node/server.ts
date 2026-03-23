@@ -2,31 +2,34 @@ import fs from "fs"
 import fsPromises from "fs/promises"
 import path from "path"
 
-import { getStreamFromConfig, loadDatoolConfig, toClientConfig } from "./config"
+import { buildDatoolClient } from "./client"
+import { getStreamFromApp, loadDatoolApp, toClientConfig } from "./app"
+import { getClientDistDirectory } from "./generated"
 import { openStreamRuntime } from "./runtime"
 import type {
   DatoolActionRequest,
   DatoolActionRowChange,
   DatoolActionResolveResult,
   DatoolActionResponse,
-  DatoolConfig,
+  DatoolApp,
   DatoolSseEndEvent,
   DatoolSseErrorEvent,
 } from "../shared/types"
 
 type StartServerOptions = {
-  configPath?: string
+  clientMode?: "auto" | "skip"
   cwd?: string
   host?: string
   port?: number
+  streamsPath?: string
 }
 
 export type DatoolServerHandle = {
-  config: DatoolConfig
-  configPath: string
+  app: DatoolApp
   host: string
   port: number
   stop: () => void
+  streamsPath: string
   url: string
 }
 
@@ -36,21 +39,21 @@ const SSE_HEADERS = {
   "Content-Type": "text/event-stream; charset=utf-8",
 } as const
 
-function packageRootFromImportMeta() {
-  return path.resolve(import.meta.dir, "..", "..")
-}
+const MAX_PORT_ATTEMPTS = 10
 
-async function loadClientIndexHtml(packageRoot: string) {
-  const indexPath = path.join(packageRoot, "client-dist", "index.html")
+async function loadClientIndexHtml(clientDistDirectory: string) {
+  const indexPath = path.join(clientDistDirectory, "index.html")
 
   return fsPromises.readFile(indexPath, "utf8")
 }
 
-function getClientAssetPath(packageRoot: string, pathname: string) {
-  const clientRoot = path.join(packageRoot, "client-dist")
-  const absolutePath = path.resolve(clientRoot, pathname.replace(/^\/+/, ""))
+function getClientAssetPath(clientDistDirectory: string, pathname: string) {
+  const absolutePath = path.resolve(
+    clientDistDirectory,
+    pathname.replace(/^\/+/, "")
+  )
 
-  if (!absolutePath.startsWith(clientRoot)) {
+  if (!absolutePath.startsWith(clientDistDirectory)) {
     return null
   }
 
@@ -83,6 +86,14 @@ function toEndPayload(reason: DatoolSseEndEvent["reason"]): DatoolSseEndEvent {
 
 function encodeSseEvent(event: string, data: unknown) {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+function isAddressInUseError(error: unknown) {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "EADDRINUSE"
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -161,13 +172,13 @@ async function resolveActionResponsePayload(
 }
 
 async function createActionResponse(
-  config: DatoolConfig,
+  app: DatoolApp,
   streamId: string,
   actionId: string,
   query: URLSearchParams,
   request: Request
 ) {
-  const stream = getStreamFromConfig(config, streamId)
+  const stream = getStreamFromApp(app, streamId)
 
   if (!stream) {
     return jsonResponse(
@@ -242,12 +253,12 @@ async function createActionResponse(
 }
 
 function createSseResponse(
-  config: DatoolConfig,
+  app: DatoolApp,
   streamId: string,
   query: URLSearchParams,
   requestSignal: AbortSignal
 ) {
-  const stream = getStreamFromConfig(config, streamId)
+  const stream = getStreamFromApp(app, streamId)
 
   if (!stream) {
     return jsonResponse(
@@ -328,91 +339,166 @@ export async function startDatoolServer(
   options: StartServerOptions = {}
 ): Promise<DatoolServerHandle> {
   const cwd = options.cwd ?? process.cwd()
-  const packageRoot = packageRootFromImportMeta()
-  const { config, configPath } = await loadDatoolConfig({
-    configPath: options.configPath,
+  const clientMode = options.clientMode ?? "auto"
+  const { app, streamsPath } = await loadDatoolApp({
     cwd,
+    streamsPath: options.streamsPath,
   })
-  const host = options.host ?? config.server?.host ?? "127.0.0.1"
-  const port = options.port ?? config.server?.port ?? 3210
-  const indexHtml = await loadClientIndexHtml(packageRoot)
-  const server = Bun.serve({
-    async fetch(request) {
-      const url = new URL(request.url)
+  const host = options.host ?? app.server?.host ?? "127.0.0.1"
+  const requestedPort = options.port ?? app.server?.port ?? 3210
+  const clientDistDirectory = getClientDistDirectory(cwd)
 
-      if (url.pathname === "/api/config") {
-        return jsonResponse(toClientConfig(config))
-      }
+  if (clientMode === "auto") {
+    await buildDatoolClient({
+      cwd,
+      force: true,
+    })
+  }
 
-      if (
-        url.pathname.startsWith("/api/streams/") &&
-        url.pathname.endsWith("/events")
-      ) {
-        const streamId = decodeURIComponent(
-          url.pathname
-            .slice("/api/streams/".length, -"/events".length)
-            .replace(/\/+$/, "")
-        )
-        const query = new URLSearchParams(url.searchParams)
+  const indexHtml =
+    clientMode === "auto" && fs.existsSync(path.join(clientDistDirectory, "index.html"))
+      ? await loadClientIndexHtml(clientDistDirectory)
+      : null
+  const loadApp = () =>
+    loadDatoolApp({
+      cwd,
+      streamsPath,
+    })
+  const fetch = async (request: Request) => {
+    const url = new URL(request.url)
 
-        query.delete("stream")
+    if (url.pathname === "/api/config") {
+      const { app: nextApp } = await loadApp()
 
-        return createSseResponse(config, streamId, query, request.signal)
-      }
+      return jsonResponse(toClientConfig(nextApp))
+    }
 
-      if (
-        request.method === "POST" &&
-        url.pathname.startsWith("/api/streams/") &&
-        url.pathname.includes("/actions/")
-      ) {
-        const pathMatch = url.pathname.match(
-          /^\/api\/streams\/(.+?)\/actions\/(.+?)\/?$/
-        )
+    if (
+      url.pathname.startsWith("/api/streams/") &&
+      url.pathname.endsWith("/events")
+    ) {
+      const streamId = decodeURIComponent(
+        url.pathname
+          .slice("/api/streams/".length, -"/events".length)
+          .replace(/\/+$/, "")
+      )
+      const query = new URLSearchParams(url.searchParams)
 
-        if (!pathMatch) {
-          return new Response("Not found", {
-            status: 404,
-          })
-        }
+      query.delete("stream")
 
-        const streamId = decodeURIComponent(pathMatch[1] ?? "")
-        const actionId = decodeURIComponent(pathMatch[2] ?? "")
-        const query = new URLSearchParams(url.searchParams)
+      const { app: nextApp } = await loadApp()
 
-        query.delete("stream")
+      return createSseResponse(nextApp, streamId, query, request.signal)
+    }
 
-        return createActionResponse(config, streamId, actionId, query, request)
-      }
+    if (
+      request.method === "POST" &&
+      url.pathname.startsWith("/api/streams/") &&
+      url.pathname.includes("/actions/")
+    ) {
+      const pathMatch = url.pathname.match(
+        /^\/api\/streams\/(.+?)\/actions\/(.+?)\/?$/
+      )
 
-      if (url.pathname === "/" || url.pathname === "/index.html") {
-        return new Response(indexHtml, {
-          headers: {
-            "Content-Type": "text/html; charset=utf-8",
-          },
+      if (!pathMatch) {
+        return new Response("Not found", {
+          status: 404,
         })
       }
 
-      const assetPath = getClientAssetPath(packageRoot, url.pathname)
+      const streamId = decodeURIComponent(pathMatch[1] ?? "")
+      const actionId = decodeURIComponent(pathMatch[2] ?? "")
+      const query = new URLSearchParams(url.searchParams)
 
-      if (assetPath && fs.existsSync(assetPath)) {
-        return new Response(Bun.file(assetPath))
-      }
+      query.delete("stream")
 
+      const { app: nextApp } = await loadApp()
+
+      return createActionResponse(nextApp, streamId, actionId, query, request)
+    }
+
+    if (!indexHtml) {
       return new Response("Not found", {
         status: 404,
       })
-    },
-    hostname: host,
-    port,
-  })
-  const resolvedPort = server.port ?? port
+    }
+
+    const assetPath = getClientAssetPath(clientDistDirectory, url.pathname)
+
+    if (assetPath && fs.existsSync(assetPath)) {
+      return new Response(Bun.file(assetPath))
+    }
+
+    if (request.method === "GET" || request.method === "HEAD") {
+      return new Response(indexHtml, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+        },
+      })
+    }
+
+    return new Response("Not found", {
+      status: 404,
+    })
+  }
+  if (requestedPort === 0) {
+    const server = Bun.serve({
+      fetch,
+      hostname: host,
+      port: 0,
+    })
+    const resolvedPort = server.port ?? 0
+
+    return {
+      app,
+      host,
+      port: resolvedPort,
+      stop: () => server.stop(true),
+      streamsPath,
+      url: `http://${host}:${resolvedPort}`,
+    }
+  }
+
+  const maxPort = Math.min(requestedPort + MAX_PORT_ATTEMPTS - 1, 65_535)
+  let server: ReturnType<typeof Bun.serve> | null = null
+
+  for (
+    let port = requestedPort;
+    port <= maxPort && server === null;
+    port += 1
+  ) {
+    try {
+      server = Bun.serve({
+        fetch,
+        hostname: host,
+        port,
+      })
+    } catch (error) {
+      if (isAddressInUseError(error) && port < maxPort) {
+        continue
+      }
+
+      if (isAddressInUseError(error)) {
+        throw new Error(
+          `No available ports from ${requestedPort} to ${maxPort}.`
+        )
+      }
+
+      throw error
+    }
+  }
+
+  if (!server) {
+    throw new Error(`No available ports from ${requestedPort} to ${maxPort}.`)
+  }
+  const resolvedPort = server.port ?? requestedPort
 
   return {
-    config,
-    configPath,
+    app,
     host,
     port: resolvedPort,
     stop: () => server.stop(true),
+    streamsPath,
     url: `http://${host}:${resolvedPort}`,
   }
 }

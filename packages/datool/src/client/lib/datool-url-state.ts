@@ -10,7 +10,6 @@ type PersistedTableState = {
   sorting?: unknown[]
 }
 
-const STREAM_PARAM = "stream"
 const DATA_TABLE_URL_PARAM_PREFIX = "datatable-"
 const LOG_VIEWER_TABLE_ID_PREFIX = "datool"
 
@@ -74,9 +73,7 @@ function cleanUpDatoolParams(url: URL, tableId: string) {
 
   for (const key of Array.from(url.searchParams.keys())) {
     if (
-      key === STREAM_PARAM ||
-      key === activeSearchParam ||
-      key === activeTableParam
+      key === activeSearchParam || key === activeTableParam
     ) {
       continue
     }
@@ -85,14 +82,6 @@ function cleanUpDatoolParams(url: URL, tableId: string) {
       url.searchParams.delete(key)
     }
   }
-}
-
-export function readSelectedStreamId() {
-  if (typeof window === "undefined") {
-    return null
-  }
-
-  return new URL(window.location.href).searchParams.get(STREAM_PARAM)
 }
 
 export function readDatoolSearch(tableId: string) {
@@ -125,14 +114,12 @@ export function writeDatoolUrlState({
   columnVisibility,
   groupBy,
   search,
-  selectedStreamId,
   tableId,
 }: {
   columnIds: string[]
   columnVisibility: VisibilityState
   groupBy: string[]
   search: string
-  selectedStreamId: string | null
   tableId: string
 }) {
   if (typeof window === "undefined") {
@@ -151,12 +138,6 @@ export function writeDatoolUrlState({
   } satisfies PersistedTableState
 
   cleanUpDatoolParams(url, tableId)
-
-  if (selectedStreamId) {
-    url.searchParams.set(STREAM_PARAM, selectedStreamId)
-  } else {
-    url.searchParams.delete(STREAM_PARAM)
-  }
 
   if (searchValue) {
     url.searchParams.set(getSearchUrlParam(tableId), search)

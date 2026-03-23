@@ -1,7 +1,9 @@
-import type { DatoolColumn } from "./types"
-
 export function resolveDatoolColumnId(
-  column: DatoolColumn,
+  column: {
+    accessorKey?: string
+    header?: string
+    id?: string
+  },
   index: number
 ) {
   return (

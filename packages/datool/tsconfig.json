@@ -14,7 +14,8 @@
     "types": ["bun-types", "node", "vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/client/*"]
+      "@/*": ["./src/client/*"],
+      "@datool-manifest": ["./src/client/default-manifest.tsx"]
     }
   },
   "include": ["src", "tests", "vite.config.ts"]
