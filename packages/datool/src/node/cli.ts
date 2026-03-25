@@ -1,14 +1,18 @@
 #!/usr/bin/env bun
 import path from "path"
 
-import { buildDatoolClient, startDatoolViteDevServer, watchDatoolManifest } from "./client"
-import { getClientDistDirectory } from "./generated"
-import { startDatoolServer } from "./server"
+import {
+  buildDatoolNextProject,
+  startDatoolNextDevServer,
+  startDatoolNextServer,
+  watchDatoolNextApp,
+} from "./next"
 
 function parseCliArgs(argv: string[]) {
   const parsedArgs: {
     command: "build" | "dev" | "serve"
     frontendHost?: string
+    ignoreTypecheck?: boolean
     frontendPort?: number
     streamsPath?: string
   } = {
@@ -38,6 +42,11 @@ function parseCliArgs(argv: string[]) {
       continue
     }
 
+    if (currentArg === "--no-typecheck") {
+      parsedArgs.ignoreTypecheck = true
+      continue
+    }
+
     if ((currentArg === "--config" || currentArg === "--streams") && nextArg) {
       parsedArgs.streamsPath = path.resolve(nextArg)
       index += 1
@@ -48,57 +57,62 @@ function parseCliArgs(argv: string[]) {
 }
 
 async function startServeCommand(args: ReturnType<typeof parseCliArgs>) {
-  const server = await startDatoolServer({
+  const host = args.frontendHost ?? "127.0.0.1"
+  const port = args.frontendPort ?? 4000
+  const nextServer = await startDatoolNextServer({
     cwd: process.cwd(),
-    host: args.frontendHost,
-    port: args.frontendPort,
+    host,
+    ignoreTypecheck: args.ignoreTypecheck,
+    port,
     streamsPath: args.streamsPath,
   })
+  const url = `http://${host}:${port}`
 
   console.log("datool ready")
-  console.log(`streams: ${server.streamsPath}`)
-  console.log(`url: ${server.url}`)
+  console.log(`sources: ${nextServer.generated.streamsPath}`)
+  console.log(`app: ${nextServer.generated.nextAppDirectory}`)
+  console.log(`url: ${url}`)
+
+  const exitCode = await nextServer.process.exited
+
+  if (exitCode !== 0) {
+    process.exit(exitCode)
+  }
 }
 
 async function startBuildCommand(args: ReturnType<typeof parseCliArgs>) {
-  const result = await buildDatoolClient({
+  const result = await buildDatoolNextProject({
     cwd: process.cwd(),
-    force: true,
+    ignoreTypecheck: args.ignoreTypecheck,
+    streamsPath: args.streamsPath,
   })
 
   console.log("datool build complete")
   console.log(`manifest: ${result.manifestPath}`)
-  console.log(`client: ${getClientDistDirectory(process.cwd())}`)
+  console.log(`config: ${result.clientConfigPath}`)
+  console.log(`app: ${result.nextAppDirectory}`)
 
-  if (args.streamsPath) {
-    console.log(`streams: ${args.streamsPath}`)
-  }
+  console.log(`sources: ${result.streamsPath}`)
 }
 
 async function startDevCommand(args: ReturnType<typeof parseCliArgs>) {
   const host = args.frontendHost ?? "127.0.0.1"
-  const frontendPort = args.frontendPort ?? 5173
-  const backendPort = frontendPort + 1
-  const backendServer = await startDatoolServer({
-    clientMode: "skip",
+  const frontendPort = args.frontendPort ?? 4000
+  const nextServer = await startDatoolNextDevServer({
     cwd: process.cwd(),
     host,
-    port: backendPort,
+    ignoreTypecheck: args.ignoreTypecheck,
+    port: frontendPort,
     streamsPath: args.streamsPath,
   })
-  const closeManifestWatcher = watchDatoolManifest({
+  const closeGeneratedWatcher = watchDatoolNextApp({
     cwd: process.cwd(),
     onError(error) {
       const message = error instanceof Error ? error.message : String(error)
 
-      console.error(`Manifest generation failed: ${message}`)
+      console.error(`Next app generation failed: ${message}`)
     },
-  })
-  const viteProcess = await startDatoolViteDevServer({
-    apiProxyTarget: backendServer.url,
-    cwd: process.cwd(),
-    host,
-    port: frontendPort,
+    streamsPath: args.streamsPath,
   })
   let hasClosed = false
 
@@ -108,11 +122,10 @@ async function startDevCommand(args: ReturnType<typeof parseCliArgs>) {
     }
 
     hasClosed = true
-    closeManifestWatcher()
-    backendServer.stop()
+    closeGeneratedWatcher()
 
     try {
-      viteProcess.kill()
+      nextServer.process.kill()
     } catch {
       // Ignore duplicate shutdown races.
     }
@@ -122,11 +135,11 @@ async function startDevCommand(args: ReturnType<typeof parseCliArgs>) {
   process.on("SIGTERM", close)
 
   console.log("datool dev ready")
-  console.log(`streams: ${backendServer.streamsPath}`)
-  console.log(`frontend: http://${host}:${frontendPort}`)
-  console.log(`backend: ${backendServer.url}`)
+  console.log(`sources: ${nextServer.generated.streamsPath}`)
+  console.log(`app: ${nextServer.generated.nextAppDirectory}`)
+  console.log(`url: http://${host}:${frontendPort}`)
 
-  const exitCode = await viteProcess.exited
+  const exitCode = await nextServer.process.exited
 
   close()
 

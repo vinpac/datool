@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "exclude": [
+    "src/client/components/event-list-view.tsx",
+    "src/client/components/hook-actions.tsx",
+    "src/client/components/index.d.ts",
+    "src/client/components/index.ts",
+    "src/client/components/run-trace-view.tsx",
+    "src/client/components/stream-viewer.tsx",
+    "src/client/components/workflow-trace-view.tsx",
+    "src/client/components/workflow-traces/**/*",
+    "src/client/lib/trace-builder.ts",
+    "src/client/lib/trace-utils.ts"
+  ]
+}

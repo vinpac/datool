@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  Copy,
   EyeOff,
   LayoutGrid,
   LoaderCircle,
@@ -57,7 +58,7 @@ import type {
   DatoolDateFormat,
   DatoolEnumColorMap,
 } from "../../shared/types"
-import { Button } from "@/components/ui/button"
+import { Button } from "./ui/button"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -69,22 +70,22 @@ import {
   ContextMenuSubTrigger,
   ContextMenuShortcut,
   ContextMenuTrigger,
-} from "@/components/ui/context-menu"
+} from "./ui/context-menu"
 import {
   getColumnHighlightTerms,
   parseSearchQuery,
   type DataTableSearchField,
-} from "@/lib/data-table-search"
+} from "../lib/data-table-search"
 import {
   buildTableSearchFields,
   withColumnSearchFilters,
-} from "@/lib/filterable-table"
+} from "../lib/filterable-table"
 import {
   readPersistedSearch,
   type SearchStatePersistence,
   writePersistedSearch,
-} from "@/lib/table-search-persistence"
-import { cn } from "@/lib/utils"
+} from "../lib/table-search-persistence"
+import { cn } from "../lib/utils"
 
 type DataTableRow = Record<string, unknown>
 
@@ -163,6 +164,7 @@ export type DataTableColumnConfig<TData extends DataTableRow> = {
     value: unknown
   }) => React.ReactNode
   cellClassName?: string
+  dateFormat?: DatoolDateFormat
   enableFiltering?: boolean
   enableGrouping?: boolean
   enableHiding?: boolean
@@ -187,10 +189,12 @@ export type DataTableProps<TData extends DataTableRow> = {
   autoScrollToBottom?: boolean
   autoScrollToBottomThreshold?: number
   columnFilters?: ColumnFiltersState
+  columnSizing?: ColumnSizingState
   columnVisibility?: VisibilityState
   columns?: DataTableColumnConfig<TData>[]
   data: TData[]
   dateFormat?: DatoolDateFormat
+  defaultSorting?: SortingState
   edgeHorizontalPadding?: React.CSSProperties["paddingLeft"]
   enableRowSelection?: boolean
   filterPlaceholder?: string
@@ -201,6 +205,7 @@ export type DataTableProps<TData extends DataTableRow> = {
   highlightQuery?: string
   id: string
   onColumnFiltersChange?: (value: ColumnFiltersState) => void
+  onColumnSizingChange?: (value: ColumnSizingState) => void
   onColumnVisibilityChange?: (value: VisibilityState) => void
   onGlobalFilterChange?: (value: string) => void
   onGroupingChange?: (value: GroupingState) => void
@@ -293,11 +298,7 @@ export function DataTableProvider<TData extends DataTableRow>({
   const resolvedSearchPersistence =
     searchPersistence ?? (persistSearch ? "localStorage" : "none")
   const isSearchControlled = controlledSearch !== undefined
-  const [search, setSearch] = React.useState(() =>
-    resolvedSearchPersistence === "none"
-      ? ""
-      : readPersistedSearch(id, resolvedSearchPersistence)
-  )
+  const [search, setSearch] = React.useState("")
 
   const resolvedSearch = controlledSearch ?? search
   const handleSearchChange = React.useCallback(
@@ -705,6 +706,7 @@ function buildColumns<TData extends DataTableRow>(
     const meta: DataTableColumnMeta = {
       align: column.align ?? inferAlignment(kind),
       cellClassName: column.cellClassName,
+      dateFormat: kind === "date" ? column.dateFormat : undefined,
       enumColors: kind === "enum" ? column.enumColors : undefined,
       enumOptions: kind === "enum" ? column.enumOptions : undefined,
       headerClassName: column.headerClassName,
@@ -715,7 +717,7 @@ function buildColumns<TData extends DataTableRow>(
     }
     const getDefaultCellContent = (value: unknown) =>
       fallbackCellValue(value, kind, {
-        dateFormat,
+        dateFormat: column.dateFormat ?? dateFormat,
         enumColors: kind === "enum" ? column.enumColors : undefined,
         enumOptions: kind === "enum" ? column.enumOptions : undefined,
       })
@@ -1466,10 +1468,12 @@ function DataTableView<TData extends DataTableRow>({
   autoScrollToBottom = false,
   autoScrollToBottomThreshold = 96,
   columnFilters: controlledColumnFilters,
+  columnSizing: controlledColumnSizing,
   columnVisibility: controlledColumnVisibility,
   columns,
   data,
   dateFormat,
+  defaultSorting,
   edgeHorizontalPadding = "16px",
   enableRowSelection = false,
   filterPlaceholder = "Search across visible columns",
@@ -1480,6 +1484,7 @@ function DataTableView<TData extends DataTableRow>({
   highlightQuery = "",
   id,
   onColumnFiltersChange,
+  onColumnSizingChange,
   onColumnVisibilityChange,
   onGlobalFilterChange,
   onGroupingChange,
@@ -1491,30 +1496,18 @@ function DataTableView<TData extends DataTableRow>({
   statePersistence = "localStorage",
 }: DataTableProps<TData>) {
   const context = useOptionalDataTableContext<TData>()
-  const persistedState = React.useMemo(
-    () => readPersistedState(id, statePersistence),
-    [id, statePersistence]
-  )
-  const [sorting, setSorting] = React.useState<SortingState>(
-    () => persistedState.sorting ?? []
-  )
-  const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>(
-    () => persistedState.columnSizing ?? {}
-  )
+  const [sorting, setSorting] = React.useState<SortingState>(defaultSorting ?? [])
+  const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({})
   const [columnVisibility, setColumnVisibility] =
-    React.useState<VisibilityState>(() => persistedState.columnVisibility ?? {})
+    React.useState<VisibilityState>({})
   const [highlightedColumns, setHighlightedColumns] = React.useState<
     Record<string, boolean>
-  >(() => persistedState.highlightedColumns ?? {})
+  >({})
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-    () => persistedState.columnFilters ?? []
+    []
   )
-  const [grouping, setGrouping] = React.useState<GroupingState>(
-    () => persistedState.grouping ?? []
-  )
-  const [expanded, setExpanded] = React.useState<ExpandedState>(() =>
-    (controlledGrouping ?? persistedState.grouping ?? []).length > 0 ? true : {}
-  )
+  const [grouping, setGrouping] = React.useState<GroupingState>([])
+  const [expanded, setExpanded] = React.useState<ExpandedState>({})
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const [rowActionStatuses, setRowActionStatuses] = React.useState<
     Record<string, RowActionStatus>
@@ -1533,10 +1526,12 @@ function DataTableView<TData extends DataTableRow>({
   const [activeContextMenuRowId, setActiveContextMenuRowId] = React.useState<
     string | null
   >(null)
-  const [uncontrolledSearchDraft, setUncontrolledSearchDraft] = React.useState(
-    () => persistedState.globalFilter ?? ""
-  )
+  const [activeContextMenuColumnId, setActiveContextMenuColumnId] =
+    React.useState<string | null>(null)
+  const [uncontrolledSearchDraft, setUncontrolledSearchDraft] =
+    React.useState("")
   const isColumnFiltersControlled = controlledColumnFilters !== undefined
+  const isColumnSizingControlled = controlledColumnSizing !== undefined
   const isColumnVisibilityControlled = controlledColumnVisibility !== undefined
   const isGlobalFilterControlled = globalFilter !== undefined
   const isGroupingControlled = controlledGrouping !== undefined
@@ -1545,6 +1540,7 @@ function DataTableView<TData extends DataTableRow>({
     : uncontrolledSearchDraft
   const deferredSearch = useDeferredValue(searchDraft)
   const resolvedColumnFilters = controlledColumnFilters ?? columnFilters
+  const resolvedColumnSizing = controlledColumnSizing ?? columnSizing
   const resolvedColumnVisibility =
     controlledColumnVisibility ?? columnVisibility
   const resolvedGrouping = controlledGrouping ?? grouping
@@ -1647,8 +1643,14 @@ function DataTableView<TData extends DataTableRow>({
   const handleColumnSizingChange = React.useCallback<
     OnChangeFn<ColumnSizingState>
   >((updater) => {
-    setColumnSizing((current) => functionalUpdate(updater, current))
-  }, [])
+    const nextValue = functionalUpdate(updater, resolvedColumnSizing)
+
+    if (!isColumnSizingControlled) {
+      setColumnSizing(nextValue)
+    }
+
+    onColumnSizingChange?.(nextValue)
+  }, [isColumnSizingControlled, onColumnSizingChange, resolvedColumnSizing])
   const handleColumnFiltersChange = React.useCallback<
     OnChangeFn<ColumnFiltersState>
   >(
@@ -1720,7 +1722,7 @@ function DataTableView<TData extends DataTableRow>({
     onSortingChange: setSorting,
     state: {
       columnFilters: resolvedColumnFilters,
-      columnSizing,
+      columnSizing: resolvedColumnSizing,
       columnVisibility: resolvedColumnVisibility,
       expanded,
       globalFilter: deferredSearch.trim(),
@@ -1758,6 +1760,25 @@ function DataTableView<TData extends DataTableRow>({
         : [],
     [activeContextMenuRow, rowActions, selectedTableRows]
   )
+  const activeContextMenuCell = React.useMemo(() => {
+    if (!activeContextMenuRow || !activeContextMenuColumnId) {
+      return null
+    }
+
+    const column = table.getColumn(activeContextMenuColumnId)
+
+    if (!column) {
+      return null
+    }
+
+    const headerName =
+      typeof column.columnDef.header === "string"
+        ? column.columnDef.header
+        : column.id
+    const value = activeContextMenuRow.getValue(activeContextMenuColumnId)
+
+    return { headerName, value }
+  }, [activeContextMenuRow, activeContextMenuColumnId, table])
   const resolvedHeight = typeof height === "number" ? height : 0
   const initialOffsetRef = React.useRef(
     autoScrollToBottom
@@ -1791,19 +1812,19 @@ function DataTableView<TData extends DataTableRow>({
   }, [])
 
   React.useEffect(() => {
-    if (isColumnFiltersControlled) {
-      return
-    }
-
     const nextState = readPersistedState(id, statePersistence)
 
-    setSorting(nextState.sorting ?? [])
-    setColumnSizing(nextState.columnSizing ?? {})
+    setSorting(nextState.sorting ?? defaultSorting ?? [])
+    if (!isColumnSizingControlled) {
+      setColumnSizing(nextState.columnSizing ?? {})
+    }
     if (!isColumnVisibilityControlled) {
       setColumnVisibility(nextState.columnVisibility ?? {})
     }
     setHighlightedColumns(nextState.highlightedColumns ?? {})
-    setColumnFilters(nextState.columnFilters ?? [])
+    if (!isColumnFiltersControlled) {
+      setColumnFilters(nextState.columnFilters ?? [])
+    }
     if (!isGroupingControlled) {
       setGrouping(nextState.grouping ?? [])
     }
@@ -1828,8 +1849,10 @@ function DataTableView<TData extends DataTableRow>({
     setRowActionStatuses({})
   }, [
     controlledGrouping,
+    defaultSorting,
     id,
     isColumnFiltersControlled,
+    isColumnSizingControlled,
     isColumnVisibilityControlled,
     isGlobalFilterControlled,
     isGroupingControlled,
@@ -1844,13 +1867,17 @@ function DataTableView<TData extends DataTableRow>({
     const syncFromUrl = () => {
       const nextState = readPersistedState(id, "url")
 
-      setSorting(nextState.sorting ?? [])
-      setColumnSizing(nextState.columnSizing ?? {})
+      setSorting(nextState.sorting ?? defaultSorting ?? [])
+      if (!isColumnSizingControlled) {
+        setColumnSizing(nextState.columnSizing ?? {})
+      }
       if (!isColumnVisibilityControlled) {
         setColumnVisibility(nextState.columnVisibility ?? {})
       }
       setHighlightedColumns(nextState.highlightedColumns ?? {})
-      setColumnFilters(nextState.columnFilters ?? [])
+      if (!isColumnFiltersControlled) {
+        setColumnFilters(nextState.columnFilters ?? [])
+      }
       if (!isGroupingControlled) {
         setGrouping(nextState.grouping ?? [])
       }
@@ -1875,7 +1902,10 @@ function DataTableView<TData extends DataTableRow>({
     return () => window.removeEventListener("popstate", syncFromUrl)
   }, [
     controlledGrouping,
+    defaultSorting,
     id,
+    isColumnFiltersControlled,
+    isColumnSizingControlled,
     isColumnVisibilityControlled,
     isGlobalFilterControlled,
     isGroupingControlled,
@@ -1883,13 +1913,9 @@ function DataTableView<TData extends DataTableRow>({
   ])
 
   React.useEffect(() => {
-    if (isGlobalFilterControlled || isColumnFiltersControlled) {
-      return
-    }
-
     writePersistedState(id, statePersistence, {
-      columnFilters,
-      columnSizing,
+      columnFilters: resolvedColumnFilters,
+      columnSizing: resolvedColumnSizing,
       highlightedColumns,
       columnVisibility: resolvedColumnVisibility,
       globalFilter: deferredSearch.trim(),
@@ -1897,14 +1923,11 @@ function DataTableView<TData extends DataTableRow>({
       sorting,
     })
   }, [
-    columnFilters,
-    columnSizing,
     deferredSearch,
     highlightedColumns,
     id,
-    isColumnFiltersControlled,
-    isGlobalFilterControlled,
-    isGroupingControlled,
+    resolvedColumnFilters,
+    resolvedColumnSizing,
     resolvedColumnVisibility,
     resolvedGrouping,
     sorting,
@@ -2234,12 +2257,17 @@ function DataTableView<TData extends DataTableRow>({
         return
       }
 
-      const rowId = (event.target as HTMLElement | null)
+      const target = event.target as HTMLElement | null
+      const rowId = target
         ?.closest<HTMLTableRowElement>("tr[data-row-id]")
         ?.dataset.rowId
+      const columnId =
+        target?.closest<HTMLTableCellElement>("td[data-column-id]")?.dataset
+          .columnId ?? null
 
       if (!rowId) {
         setActiveContextMenuRowId(null)
+        setActiveContextMenuColumnId(null)
         event.preventDefault()
         return
       }
@@ -2248,6 +2276,7 @@ function DataTableView<TData extends DataTableRow>({
 
       if (!row || row.getIsGrouped()) {
         setActiveContextMenuRowId(null)
+        setActiveContextMenuColumnId(null)
         event.preventDefault()
         return
       }
@@ -2256,11 +2285,13 @@ function DataTableView<TData extends DataTableRow>({
         resolveVisibleRowActions(rowActions, row, selectedTableRows).length === 0
       ) {
         setActiveContextMenuRowId(null)
+        setActiveContextMenuColumnId(null)
         event.preventDefault()
         return
       }
 
       setActiveContextMenuRowId(rowId)
+      setActiveContextMenuColumnId(columnId)
     },
     [rowActions, rowsById, selectedTableRows]
   )
@@ -2438,7 +2469,7 @@ function DataTableView<TData extends DataTableRow>({
                 | undefined
               const groupingValue = groupingColumn
                 ? fallbackCellValue(row.groupingValue, groupingMeta?.kind, {
-                    dateFormat,
+                    dateFormat: groupingMeta?.dateFormat ?? dateFormat,
                     enumColors: groupingMeta?.enumColors,
                     enumOptions: groupingMeta?.enumOptions,
                   })
@@ -2641,6 +2672,7 @@ function DataTableView<TData extends DataTableRow>({
                               ? edgeHorizontalPadding
                               : undefined
                           }
+                          width={cell.column.getSize()}
                         />
                       )
                     })
@@ -2664,11 +2696,34 @@ function DataTableView<TData extends DataTableRow>({
           onOpenChange={(open) => {
             if (!open) {
               setActiveContextMenuRowId(null)
+              setActiveContextMenuColumnId(null)
             }
           }}
         >
           <ContextMenuTrigger asChild>{tableContent}</ContextMenuTrigger>
           <ContextMenuContent className="w-64">
+            {activeContextMenuCell ? (
+              <>
+                <ContextMenuItem
+                  onSelect={() => {
+                    const cellValue = activeContextMenuCell.value
+                    const text =
+                      cellValue === null || cellValue === undefined
+                        ? ""
+                        : typeof cellValue === "object"
+                          ? JSON.stringify(cellValue)
+                          : String(cellValue)
+                    void navigator.clipboard.writeText(text)
+                  }}
+                >
+                  <Copy className="size-3.5" />
+                  <span className="truncate">
+                    Copy {activeContextMenuCell.headerName}
+                  </span>
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+              </>
+            ) : null}
             {activeContextMenuActions.map((resolvedAction) => (
               <RowActionMenuItem
                 key={resolvedAction.action.id}

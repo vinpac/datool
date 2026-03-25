@@ -1,5 +1,7 @@
+"use client"
+
 import * as React from "react"
-import type { VisibilityState } from "@tanstack/react-table"
+import type { ColumnSizingState, VisibilityState } from "@tanstack/react-table"
 import {
   Copy,
   Filter,
@@ -8,7 +10,6 @@ import {
   StopCircleIcon,
   Trash2Icon,
 } from "lucide-react"
-import { useLocation } from "react-router-dom"
 
 import {
   DataTable,
@@ -16,19 +17,19 @@ import {
   type DataTableColumnConfig,
   type DataTableRowAction,
   useDataTableContext,
-} from "@/components/data-table"
+} from "./data-table"
 import {
   DataTableColIcon,
   type DataTableColumnKind,
-} from "@/components/data-table-col-icon"
+} from "./data-table-col-icon"
 import {
   DataTableSearchInput,
   type DataTableSearchInputHandle,
-} from "@/components/data-table-search-input"
-import { Button } from "@/components/ui/button"
-import { SidebarTrigger } from "@/components/ui/sidebar"
-import { ConnectionStatus } from "@/components/connection-status"
-import { ViewerSettings } from "@/components/viewer-settings"
+} from "./data-table-search-input"
+import { Button } from "./ui/button"
+import { SidebarTrigger } from "./ui/sidebar"
+// import { ConnectionStatus } from "./connection-status"
+import { ViewerSettings } from "./viewer-settings"
 import {
   getValueAtPath,
   isNestedAccessorKey,
@@ -38,25 +39,30 @@ import type {
   DatoolActionRequest,
   DatoolActionRowChange,
   DatoolActionResponse,
-  DatoolClientStream,
+  DatoolClientSource,
+  DatoolDateFormat,
   DatoolRowEvent,
   DatoolSseEndEvent,
   DatoolSseErrorEvent,
 } from "../../shared/types"
-import { LOG_VIEWER_ICONS } from "@/lib/datool-icons"
+import { LOG_VIEWER_ICONS } from "../lib/datool-icons"
 import {
   quoteSearchTokenValue,
   splitSearchQuery,
-} from "@/lib/data-table-search"
+} from "../lib/data-table-search"
 import {
+  readDatoolColumnSizing,
   readDatoolColumnVisibility,
   readDatoolGrouping,
   readDatoolSearch,
   writeDatoolUrlState,
-} from "@/lib/datool-url-state"
+} from "../lib/datool-url-state"
+import { downloadTextFile, sanitizeFilePart } from "../lib/file-download"
 import { upsertViewerRow } from "../stream-state"
 import { useDatoolAppConfig } from "../app-config"
-import type { DatoolColumns } from "../table-types"
+import { useDatoolSource } from "../hooks/use-datool-stream"
+import { useDatoolNavigation } from "../navigation"
+import type { DatoolColumn, DatoolSortingState } from "../table-types"
 
 type ViewerRow = Record<string, unknown> & {
   __datoolRowId: string
@@ -204,38 +210,6 @@ function escapeMarkdownValue(value: string) {
   return value.replace(/\|/g, "\\|").replace(/\r\n?/g, "\n").replace(/\n/g, "<br />")
 }
 
-function sanitizeFilePart(value: string) {
-  return (
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "datool-view"
-  )
-}
-
-function downloadTextFile(
-  content: string,
-  fileName: string,
-  contentType: string
-) {
-  const blob = new Blob([content], {
-    type: `${contentType};charset=utf-8`,
-  })
-  const objectUrl = window.URL.createObjectURL(blob)
-  const anchor = document.createElement("a")
-
-  anchor.href = objectUrl
-  anchor.download = fileName
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-
-  window.setTimeout(() => {
-    window.URL.revokeObjectURL(objectUrl)
-  }, 0)
-}
-
 function buildCsvContent(rows: ViewerRow[], columns: ViewerExportColumn[]) {
   const headerRow = columns.map((column) => escapeCsvValue(column.label)).join(",")
   const dataRows = rows.map((row) =>
@@ -270,7 +244,7 @@ function buildMarkdownContent(rows: ViewerRow[], columns: ViewerExportColumn[]) 
 }
 
 function buildTableColumns(
-  columns: DatoolColumns<ViewerRow>[]
+  columns: DatoolColumn<ViewerRow>[]
 ): DataTableColumnConfig<ViewerRow>[] {
   return columns.map((column, index) => {
     const nestedAccessor = isNestedAccessorKey(column.accessorKey)
@@ -286,18 +260,6 @@ function buildTableColumns(
       id: resolveDatoolColumnId(column, index),
     }
   })
-}
-
-function parseRowEvent(event: MessageEvent<string>) {
-  return JSON.parse(event.data) as DatoolRowEvent
-}
-
-function parseErrorEvent(event: MessageEvent<string>) {
-  return JSON.parse(event.data) as DatoolSseErrorEvent
-}
-
-function parseEndEvent(event: MessageEvent<string>) {
-  return JSON.parse(event.data) as DatoolSseEndEvent
 }
 
 function stringifyRowActionValue(value: unknown) {
@@ -388,8 +350,9 @@ function replaceFieldFilter(query: string, fieldId: string, nextToken: string) {
 }
 
 const StreamPageTable = React.memo(function StreamPageTable({
-  activeStream,
+  activeSource,
   columns,
+  canLiveUpdate,
   errorMessage,
   groupedColumnIds,
   handleExport,
@@ -402,8 +365,9 @@ const StreamPageTable = React.memo(function StreamPageTable({
   setShouldConnect,
   settingsColumns,
 }: {
-  activeStream: DatoolClientStream | null
+  activeSource: DatoolClientSource | null
   columns: DataTableColumnConfig<ViewerRow>[]
+  canLiveUpdate: boolean
   errorMessage: string | null
   groupedColumnIds: string[]
   handleExport: (format: "csv" | "md") => void
@@ -431,19 +395,19 @@ const StreamPageTable = React.memo(function StreamPageTable({
   const rowActions = React.useMemo<DataTableRowAction<ViewerRow>[]>(
     () => {
       const configActions =
-        activeStream?.actions.map(
+        activeSource?.actions.map(
           (action): DataTableRowAction<ViewerRow> => ({
             button: action.button,
             icon: action.icon ? LOG_VIEWER_ICONS[action.icon] : undefined,
             id: `config-${action.id}`,
             label: action.label,
             onSelect: async ({ actionRowIds, actionRows }) => {
-              if (!activeStream) {
+              if (!activeSource) {
                 return
               }
 
               const url = new URL(
-                `/api/streams/${encodeURIComponent(activeStream.id)}/actions/${encodeURIComponent(action.id)}`,
+                `/api/sources/${encodeURIComponent(activeSource.id)}/actions/${encodeURIComponent(action.id)}`,
                 window.location.origin
               )
               const currentParams = new URL(window.location.href).searchParams
@@ -554,7 +518,7 @@ const StreamPageTable = React.memo(function StreamPageTable({
         },
       ]
     },
-    [activeStream, columns, setRows, setSearch]
+    [activeSource, columns, setRows, setSearch]
   )
 
   return (
@@ -567,11 +531,11 @@ const StreamPageTable = React.memo(function StreamPageTable({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <ConnectionStatus
+          {/* <ConnectionStatus
             className="rounded-md border border-border bg-muted/40 px-3 py-2"
             isConnected={isConnected}
             isConnecting={isConnecting}
-          />
+          /> */}
           <Button
             aria-label="Clear rows"
             onClick={() => setRows([])}
@@ -582,8 +546,9 @@ const StreamPageTable = React.memo(function StreamPageTable({
             <Trash2Icon className="size-4" />
           </Button>
           <Button
-            aria-label={isConnected ? "Pause stream" : "Play stream"}
+            aria-label={isConnected ? "Pause live updates" : "Resume live updates"}
             className="gap-2"
+            disabled={!canLiveUpdate}
             onClick={() => setShouldConnect((current) => !current)}
             size="xl"
             type="button"
@@ -600,11 +565,21 @@ const StreamPageTable = React.memo(function StreamPageTable({
           </Button>
           <ViewerSettings
             columns={settingsColumns}
+            exportActions={[
+              {
+                id: "csv",
+                label: "Export CSV",
+                onSelect: () => handleExport("csv"),
+              },
+              {
+                id: "markdown",
+                label: "Export Markdown",
+                onSelect: () => handleExport("md"),
+              },
+            ]}
             groupedColumnIds={groupedColumnIds}
-            isDisabled={!activeStream}
+            isDisabled={!activeSource}
             onClearGrouping={() => setGroupedColumnIds([])}
-            onExportCsv={() => handleExport("csv")}
-            onExportMarkdown={() => handleExport("md")}
             onToggleColumn={(columnId, visible) =>
               setColumnVisibility((current) => ({
                 ...current,
@@ -639,28 +614,39 @@ const StreamPageTable = React.memo(function StreamPageTable({
   )
 })
 
-export function StreamPageView({
+export function TablePageView({
   columns: declaredColumns,
-  stream,
+  dateFormat,
+  defaultSorting,
+  rowClassName,
+  rowStyle,
+  source,
 }: {
-  columns: DatoolColumns<ViewerRow>[]
-  stream: string
+  columns: DatoolColumn<ViewerRow>[]
+  dateFormat?: DatoolDateFormat
+  defaultSorting?: DatoolSortingState
+  rowClassName?: (row: ViewerRow) => string | undefined
+  rowStyle?: (row: ViewerRow) => React.CSSProperties | undefined
+  source: string
 }) {
-  const location = useLocation()
-  const { config, streamById } = useDatoolAppConfig()
-  const activeStream = streamById.get(stream) ?? null
+  const location = useDatoolNavigation()
+  const { config } = useDatoolAppConfig()
+  const {
+    activeSource,
+    canLiveUpdate,
+    errorMessage,
+    isConnected,
+    isConnecting,
+    rows,
+    setRows,
+    setShouldConnect,
+  } = useDatoolSource<ViewerRow>(source)
   const tableId = React.useMemo(
     () => getTableId(location.pathname),
     [location.pathname]
   )
-  const [initialUrlState] = React.useState(() => ({
-    search: readDatoolSearch(tableId),
-  }))
-  const [rows, setRows] = React.useState<ViewerRow[]>([])
-  const [shouldConnect, setShouldConnect] = React.useState(true)
-  const [isConnected, setIsConnected] = React.useState(false)
-  const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
-  const [search, setSearch] = React.useState(() => initialUrlState.search)
+  const [search, setSearch] = React.useState("")
+  const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({})
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
     {}
   )
@@ -668,7 +654,6 @@ export function StreamPageView({
   const [hydratedTableId, setHydratedTableId] = React.useState<string | null>(
     null
   )
-  const eventSourceRef = React.useRef<EventSource | null>(null)
   const searchInputRef = React.useRef<DataTableSearchInputHandle>(null)
 
   const columns = React.useMemo(
@@ -721,16 +706,14 @@ export function StreamPageView({
     () => exportColumns.map((column) => column.id),
     [exportColumns]
   )
-  const isConnecting = shouldConnect && !isConnected
-
   React.useEffect(() => {
     setRows([])
-    setErrorMessage(null)
     setSearch(readDatoolSearch(tableId))
+    setColumnSizing(readDatoolColumnSizing(tableId, columnIds))
     setColumnVisibility(readDatoolColumnVisibility(tableId, columnIds))
     setGroupedColumnIds(readDatoolGrouping(tableId, columnIds))
     setHydratedTableId(tableId)
-  }, [columnIds, tableId])
+  }, [columnIds, setRows, tableId])
 
   React.useEffect(() => {
     if (hydratedTableId !== tableId) {
@@ -740,6 +723,7 @@ export function StreamPageView({
     const timeoutId = window.setTimeout(() => {
       writeDatoolUrlState({
         columnIds,
+        columnSizing,
         columnVisibility,
         groupBy: groupedColumnIds,
         search,
@@ -750,6 +734,7 @@ export function StreamPageView({
     return () => window.clearTimeout(timeoutId)
   }, [
     columnIds,
+    columnSizing,
     columnVisibility,
     groupedColumnIds,
     hydratedTableId,
@@ -760,6 +745,7 @@ export function StreamPageView({
   React.useEffect(() => {
     const handlePopState = () => {
       setSearch(readDatoolSearch(tableId))
+      setColumnSizing(readDatoolColumnSizing(tableId, columnIds))
       setColumnVisibility(readDatoolColumnVisibility(tableId, columnIds))
       setGroupedColumnIds(readDatoolGrouping(tableId, columnIds))
       setHydratedTableId(tableId)
@@ -769,88 +755,6 @@ export function StreamPageView({
 
     return () => window.removeEventListener("popstate", handlePopState)
   }, [columnIds, tableId])
-
-  React.useEffect(() => {
-    if (!shouldConnect) {
-      eventSourceRef.current?.close()
-      eventSourceRef.current = null
-      setIsConnected(false)
-      return
-    }
-
-    if (!activeStream) {
-      setErrorMessage(`Unknown stream "${stream}".`)
-      setIsConnected(false)
-      return
-    }
-
-    setErrorMessage(null)
-    setRows([])
-
-    const url = new URL(
-      `/api/streams/${encodeURIComponent(activeStream.id)}/events`,
-      window.location.origin
-    )
-    const currentParams = new URL(window.location.href).searchParams
-
-    for (const [key, value] of currentParams.entries()) {
-      url.searchParams.set(key, value)
-    }
-
-    const eventSource = new EventSource(url)
-
-    eventSourceRef.current = eventSource
-
-    const handleRow = (event: MessageEvent<string>) => {
-      const payload = parseRowEvent(event)
-
-      setRows((currentRows) =>
-        upsertViewerRow(currentRows, {
-          ...payload.row,
-          __datoolRowId: payload.id,
-        })
-      )
-    }
-
-    const handleRuntimeError = (event: MessageEvent<string>) => {
-      const payload = parseErrorEvent(event)
-
-      setErrorMessage(payload.message)
-    }
-
-    const handleEnd = (event: MessageEvent<string>) => {
-      parseEndEvent(event)
-      eventSource.close()
-      eventSourceRef.current = null
-      setIsConnected(false)
-    }
-
-    eventSource.onopen = () => {
-      setIsConnected(true)
-    }
-
-    eventSource.onerror = () => {
-      setIsConnected(false)
-    }
-
-    eventSource.addEventListener("row", handleRow as EventListener)
-    eventSource.addEventListener(
-      "runtime-error",
-      handleRuntimeError as EventListener
-    )
-    eventSource.addEventListener("end", handleEnd as EventListener)
-
-    return () => {
-      eventSource.removeEventListener("row", handleRow as EventListener)
-      eventSource.removeEventListener(
-        "runtime-error",
-        handleRuntimeError as EventListener
-      )
-      eventSource.removeEventListener("end", handleEnd as EventListener)
-      eventSource.close()
-      setIsConnected(false)
-    }
-  }, [activeStream, shouldConnect, stream])
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -872,7 +776,7 @@ export function StreamPageView({
         return
       }
 
-      const fileBaseName = `${sanitizeFilePart(stream)}-${new Date()
+      const fileBaseName = `${sanitizeFilePart(source)}-${new Date()
         .toISOString()
         .replaceAll(":", "-")}`
       const content =
@@ -886,29 +790,35 @@ export function StreamPageView({
         format === "csv" ? "text/csv" : "text/markdown"
       )
     },
-    [groupedRowsState, stream, visibleExportColumns]
+    [groupedRowsState, source, visibleExportColumns]
   )
 
   return (
     <DataTableProvider
       autoScrollToBottom={groupedColumnIds.length === 0}
+      columnSizing={columnSizing}
       columnVisibility={columnVisibility}
       columns={columns}
       data={rows}
-      dateFormat={config.dateFormat}
+      dateFormat={dateFormat ?? config.dateFormat}
+      defaultSorting={defaultSorting}
       getRowId={(row) => row.__datoolRowId}
       grouping={groupedColumnIds}
       height="100%"
       id={tableId}
+      onColumnSizingChange={setColumnSizing}
       onColumnVisibilityChange={setColumnVisibility}
       onGroupingChange={setGroupedColumnIds}
       onSearchChange={setSearch}
+      rowClassName={rowClassName}
+      rowStyle={rowStyle}
       search={search}
       rowHeight={20}
       statePersistence="none"
     >
       <StreamPageTable
-        activeStream={activeStream}
+        activeSource={activeSource}
+        canLiveUpdate={canLiveUpdate}
         columns={columns}
         errorMessage={errorMessage}
         groupedColumnIds={groupedColumnIds}

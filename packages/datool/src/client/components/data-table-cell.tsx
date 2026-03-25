@@ -1,12 +1,22 @@
 /* eslint-disable react-refresh/only-export-components */
 import { flexRender, type Cell } from "@tanstack/react-table"
-import { Check, Minus } from "lucide-react"
+import { Check, Copy, Minus } from "lucide-react"
 import * as React from "react"
 
 import type { DataTableColumnKind } from "./data-table-col-icon"
 import type { DataTableColumnMeta } from "./data-table-header-col"
 import { EnumBadge } from "./enum-badge"
-import { cn } from "@/lib/utils"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./ui/tooltip"
+import { cn } from "../lib/utils"
+import {
+  formatDateValue,
+  formatUtcDateValue,
+  parseDateValue,
+} from "../../shared/date-format"
 import type {
   DatoolDateFormat,
   DatoolEnumColorMap,
@@ -23,22 +33,79 @@ function getAlignmentClassName(align: DataTableColumnMeta["align"] = "left") {
   }
 }
 
-function formatDate(
-  value: string | number | Date,
+function DateCellValue({
+  value,
+  dateFormat,
+}: {
+  value: string | number | Date
   dateFormat?: DatoolDateFormat
-) {
-  const date = value instanceof Date ? value : new Date(value)
+}) {
+  const [copied, setCopied] = React.useState(false)
+  const resetCopiedTimeoutRef = React.useRef<number | null>(null)
+  const date = parseDateValue(value)
 
-  if (Number.isNaN(date.getTime())) {
+  React.useEffect(() => {
+    return () => {
+      if (resetCopiedTimeoutRef.current !== null) {
+        window.clearTimeout(resetCopiedTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  if (!date) {
     return String(value)
   }
 
-  return new Intl.DateTimeFormat(
-    undefined,
-    dateFormat ?? {
-      dateStyle: "medium",
+  const displayValue = formatDateValue(date, dateFormat)
+  const tooltipValue = formatUtcDateValue(date)
+
+  const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+
+    try {
+      await navigator.clipboard.writeText(displayValue)
+      setCopied(true)
+
+      if (resetCopiedTimeoutRef.current !== null) {
+        window.clearTimeout(resetCopiedTimeoutRef.current)
+      }
+
+      resetCopiedTimeoutRef.current = window.setTimeout(() => {
+        setCopied(false)
+        resetCopiedTimeoutRef.current = null
+      }, 1500)
+    } catch {
+      setCopied(false)
     }
-  ).format(date)
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          aria-label={`Copy ${displayValue}`}
+          className="group/date inline-flex max-w-full items-center gap-1 rounded-sm text-left text-inherit transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          onClick={handleCopy}
+          type="button"
+        >
+          <span className="truncate">{displayValue}</span>
+          <span
+            aria-hidden="true"
+            className="opacity-0 transition-opacity group-hover/date:opacity-100 group-focus-visible/date:opacity-100"
+          >
+            {copied ? (
+              <Check className="size-3 text-primary" />
+            ) : (
+              <Copy className="size-3 text-muted-foreground" />
+            )}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="font-mono" sideOffset={6}>
+        {tooltipValue}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 function formatNumber(value: number) {
@@ -90,7 +157,12 @@ function fallbackCellValue(
   }
 
   if (kind === "date" || value instanceof Date) {
-    return formatDate(value as string | number | Date, options?.dateFormat)
+    return (
+      <DateCellValue
+        dateFormat={options?.dateFormat}
+        value={value as string | number | Date}
+      />
+    )
   }
 
   if (Array.isArray(value) || typeof value === "object") {
@@ -211,6 +283,7 @@ type DataTableBodyCellProps<TData> = {
   highlightTerms?: string[]
   paddingLeft?: React.CSSProperties["paddingLeft"]
   paddingRight?: React.CSSProperties["paddingRight"]
+  width: number
 }
 
 function areStringArraysEqual(left: string[] = [], right: string[] = []) {
@@ -237,14 +310,20 @@ function areDateFormatsEqual(
     return left === right
   }
 
-  const leftKeys = Object.keys(left) as Array<keyof DatoolDateFormat>
-  const rightKeys = Object.keys(right) as Array<keyof DatoolDateFormat>
+  if (typeof left === "string" || typeof right === "string") {
+    return left === right
+  }
+
+  const leftRecord = left as Record<string, unknown>
+  const rightRecord = right as Record<string, unknown>
+  const leftKeys = Object.keys(leftRecord)
+  const rightKeys = Object.keys(rightRecord)
 
   if (leftKeys.length !== rightKeys.length) {
     return false
   }
 
-  return leftKeys.every((key) => left[key] === right[key])
+  return leftKeys.every((key) => leftRecord[key] === rightRecord[key])
 }
 
 function areRecordValuesEqual(
@@ -272,6 +351,7 @@ function areColumnMetaEqual(
   return (
     left.align === right.align &&
     left.cellClassName === right.cellClassName &&
+    areDateFormatsEqual(left.dateFormat, right.dateFormat) &&
     areRecordValuesEqual(left.enumColors, right.enumColors) &&
     areStringArraysEqual(left.enumOptions, right.enumOptions) &&
     left.headerClassName === right.headerClassName &&
@@ -329,6 +409,7 @@ function DataTableBodyCellInner<TData>({
   highlightTerms = [],
   paddingLeft,
   paddingRight,
+  width,
 }: DataTableBodyCellProps<TData>) {
   const meta = (cell.column.columnDef.meta ?? {}) as DataTableColumnMeta
   const rawValue = cell.getValue()
@@ -341,17 +422,19 @@ function DataTableBodyCellInner<TData>({
     meta.highlightMatches !== false &&
     typeof rawValue === "string" &&
     highlightTerms.length > 0
+  const resolvedDateFormat = meta.dateFormat ?? dateFormat
   const content = shouldHighlight
     ? renderHighlightedText(rawValue, highlightTerms, rendered)
     : (rendered ??
         fallbackCellValue(rawValue, meta.kind, {
-          dateFormat,
+          dateFormat: resolvedDateFormat,
           enumColors: meta.enumColors,
           enumOptions: meta.enumOptions,
         }))
 
   return (
     <td
+      data-column-id={cell.column.id}
       data-sticky-cell={isSticky ? "true" : "false"}
       className={cn(
         "flex shrink-0 border-b border-border px-2 py-1.5 align-middle text-sm text-foreground",
@@ -362,7 +445,7 @@ function DataTableBodyCellInner<TData>({
       style={{
         paddingLeft,
         paddingRight,
-        width: cell.column.getSize(),
+        width,
       }}
     >
       <div
@@ -386,6 +469,7 @@ const MemoizedDataTableBodyCell = React.memo(
     previousProps: DataTableBodyCellProps<TData>,
     nextProps: DataTableBodyCellProps<TData>
   ) =>
+    previousProps.width === nextProps.width &&
     previousProps.paddingLeft === nextProps.paddingLeft &&
     previousProps.paddingRight === nextProps.paddingRight &&
     areDateFormatsEqual(previousProps.dateFormat, nextProps.dateFormat) &&

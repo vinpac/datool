@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 
-import { waitForDelay } from "../lines"
-import type { DatoolSource } from "../../shared/types"
+import { waitForDelay } from "../lines.ts"
+import type { DatoolSource } from "../../shared/types.ts"
 
 type Resolver<T> = T | ((context: { query: URLSearchParams }) => T)
 

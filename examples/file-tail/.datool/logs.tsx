@@ -1,6 +1,6 @@
-import { Table, type DatoolColumns } from "datool"
+import { Table, type DatoolColumn } from "datool"
 
-const columns: DatoolColumns[] = [
+const columns: DatoolColumn[] = [
   {
     accessorKey: "ts",
     header: "Timestamp",
@@ -42,5 +42,5 @@ const columns: DatoolColumns[] = [
 export const title = "Run Logs"
 
 export default function RunLogsPage() {
-  return <Table columns={columns} stream="file" />
+  return <Table columns={columns} source="file" />
 }

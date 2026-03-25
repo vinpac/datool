@@ -3,14 +3,14 @@
 import * as React from "react"
 import { Combobox as ComboboxPrimitive } from "@base-ui/react"
 
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { cn } from "../../lib/utils"
+import { Button } from "./button"
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-} from "@/components/ui/input-group"
+} from "./input-group"
 import { ChevronDownIcon, XIcon, CheckIcon } from "lucide-react"
 
 const Combobox = ComboboxPrimitive.Root
@@ -77,7 +77,7 @@ function ComboboxInput({
         }
         {...props}
       />
-      <InputGroupAddon align="inline-end">
+      {/* <InputGroupAddon align="inline-end">
         {showTrigger && (
           <InputGroupButton
             size="icon-xs"
@@ -91,7 +91,7 @@ function ComboboxInput({
           </InputGroupButton>
         )}
         {showClear && <ComboboxClear disabled={disabled} />}
-      </InputGroupAddon>
+      </InputGroupAddon> */}
       {children}
     </InputGroup>
   )

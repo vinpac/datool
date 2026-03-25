@@ -1,9 +1,10 @@
 import fs from "fs"
 import path from "path"
+import { fileURLToPath } from "url"
 
 import { build } from "vite"
 
-import { loadDatoolApp } from "./app"
+import { loadDatoolApp, resolveDatoolAppDirectory } from "./app"
 import {
   getClientDistDirectory,
   getGeneratedManifestPath,
@@ -11,7 +12,7 @@ import {
 } from "./generated"
 
 function packageRootFromImportMeta() {
-  return path.resolve(import.meta.dir, "..", "..")
+  return path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..")
 }
 
 function withDatoolClientEnv<T>(
@@ -130,8 +131,11 @@ export async function buildDatoolClient(options: {
 export function watchDatoolManifest(options: {
   cwd: string
   onError?: (error: unknown) => void
+  streamsPath?: string
 }) {
-  const appDirectory = path.join(options.cwd, "datool")
+  const appDirectory = options.streamsPath
+    ? path.dirname(options.streamsPath)
+    : resolveDatoolAppDirectory(options.cwd)
   let timeoutId: ReturnType<typeof setTimeout> | null = null
 
   const writeManifest = () => {
@@ -151,7 +155,16 @@ export function watchDatoolManifest(options: {
     {
       recursive: true,
     },
-    () => {
+    (_, filename) => {
+      const relativePath = filename?.toString()
+      const [rootSegment] = relativePath
+        ? relativePath.split(path.sep)
+        : []
+
+      if (rootSegment && ["client-dist", "generated"].includes(rootSegment)) {
+        return
+      }
+
       writeManifest()
     }
   )
@@ -171,10 +184,7 @@ export async function startDatoolViteDevServer(options: {
   host: string
   port: number
 }) {
-  const manifestPath =
-    fs.existsSync(getGeneratedManifestPath(options.cwd))
-      ? getGeneratedManifestPath(options.cwd)
-      : await generateDatoolManifest(options.cwd)
+  const manifestPath = await generateDatoolManifest(options.cwd)
   const clientOutDir = getClientDistDirectory(options.cwd)
   const viteConfigPath = path.join(packageRootFromImportMeta(), "vite.config.ts")
   return withDatoolClientEnvSync(

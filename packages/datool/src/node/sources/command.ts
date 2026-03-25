@@ -1,5 +1,5 @@
-import { readLinesFromStream } from "../lines"
-import type { DatoolSource } from "../../shared/types"
+import { readLinesFromStream } from "../lines.ts"
+import type { DatoolSource } from "../../shared/types.ts"
 
 type Resolver<T> = T | ((context: { query: URLSearchParams }) => T)
 

@@ -8,7 +8,8 @@ import {
 
 import { DatoolAppConfigProvider } from "./app-config"
 import { AppSidebar } from "./components/app-sidebar"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { SidebarInset, SidebarProvider } from "./components/ui/sidebar"
+import { readJsonResponse } from "./lib/http"
 import type { DatoolClientConfig } from "../shared/types"
 import { manifestPages } from "@datool-manifest"
 
@@ -63,11 +64,23 @@ export default function App() {
 
     void fetch("/api/config")
       .then(async (response) => {
+        const payload = await readJsonResponse<DatoolClientConfig>(response)
+
         if (!response.ok) {
-          throw new Error("Failed to load datool app config.")
+          throw new Error(
+            (payload &&
+            typeof payload === "object" &&
+            "error" in payload &&
+            payload.error) ||
+              "Failed to load datool app config."
+          )
         }
 
-        return (await response.json()) as DatoolClientConfig
+        if (!payload) {
+          throw new Error("Datool app config response was empty.")
+        }
+
+        return payload as DatoolClientConfig
       })
       .then((nextConfig) => {
         if (!cancelled) {

@@ -1,10 +1,13 @@
+"use client"
+
 import * as React from "react"
 
-import type { DatoolClientConfig, DatoolClientStream } from "../shared/types"
+import type { DatoolClientConfig, DatoolClientSource } from "../shared/types"
 
 type DatoolAppConfigContextValue = {
   config: DatoolClientConfig
-  streamById: Map<string, DatoolClientStream>
+  sourceById: Map<string, DatoolClientSource>
+  streamById: Map<string, DatoolClientSource>
 }
 
 const DatoolAppConfigContext =
@@ -18,10 +21,15 @@ export function DatoolAppConfigProvider({
   config: DatoolClientConfig
 }) {
   const value = React.useMemo<DatoolAppConfigContextValue>(
-    () => ({
-      config,
-      streamById: new Map(config.streams.map((stream) => [stream.id, stream])),
-    }),
+    () => {
+      const sources = config.sources ?? config.streams ?? []
+
+      return {
+        config,
+        sourceById: new Map(sources.map((source) => [source.id, source])),
+        streamById: new Map(sources.map((source) => [source.id, source])),
+      }
+    },
     [config]
   )
 

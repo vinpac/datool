@@ -87,20 +87,15 @@ export type DatoolActionButtonConfig =
       variant?: DatoolActionButtonVariant
     }
 
-export type DatoolDateFormat = Intl.DateTimeFormatOptions
-
-export type DatoolColumn = {
-  accessorKey: string
-  align?: "left" | "center" | "right"
-  enumColors?: DatoolEnumColorMap
-  header?: string
-  id?: string
-  kind?: DatoolColumnKind
-  maxWidth?: number
-  minWidth?: number
-  truncate?: boolean
-  width?: number
+export type DatoolRelativeDateFormat = {
+  addSuffix?: boolean
+  relative: true
 }
+
+export type DatoolDateFormat =
+  | DatoolRelativeDateFormat
+  | Intl.DateTimeFormatOptions
+  | string
 
 export type DatoolOpenContext = {
   emit: (line: string) => void
@@ -108,25 +103,46 @@ export type DatoolOpenContext = {
   signal: AbortSignal
 }
 
+export type DatoolGetContext = {
+  limit?: number
+  offset?: number
+  page?: number
+  query: URLSearchParams
+  signal: AbortSignal
+  sourceId: string
+  streamId?: string
+}
+
+export type DatoolGetResultMetadata = {
+  nextOffset?: number
+  nextPage?: number
+  prevOffset?: number
+  prevPage?: number
+  total?: number
+}
+
 export type DatoolParseLineContext = {
   line: string
   query: URLSearchParams
-  streamId: string
+  sourceId: string
+  streamId?: string
 }
 
 export type DatoolGetRowIdContext<Row extends Record<string, unknown>> = {
   index: number
-  line: string
+  line?: string
   query: URLSearchParams
   row: Row
-  streamId: string
+  sourceId: string
+  streamId?: string
 }
 
 export type DatoolActionResolveContext<Row extends Record<string, unknown>> = {
   actionId: string
   query: URLSearchParams
   rows: Row[]
-  streamId: string
+  sourceId: string
+  streamId?: string
 }
 
 export type DatoolActionRowChange<Row extends Record<string, unknown>> =
@@ -156,6 +172,16 @@ export type DatoolOpenHandler = (
   context: DatoolOpenContext
 ) => void | Promise<void> | (() => void | Promise<void>)
 
+export type DatoolGetResult<Row extends Record<string, unknown>> =
+  | Row[]
+  | ({
+      rows: Row[]
+    } & DatoolGetResultMetadata)
+
+export type DatoolGetHandler<Row extends Record<string, unknown>> = (
+  context: DatoolGetContext
+) => DatoolGetResult<Row> | Promise<DatoolGetResult<Row>>
+
 export type DatoolParseLineHandler<Row extends Record<string, unknown>> = (
   context: DatoolParseLineContext
 ) => Row | null | Promise<Row | null>
@@ -168,27 +194,54 @@ export type DatoolSource = {
   open: DatoolOpenHandler
 }
 
-export type DatoolResolvedStream<Row extends Record<string, unknown>> = {
+type RequireAtLeastOne<TValue, TKey extends keyof TValue = keyof TValue> =
+  Omit<TValue, TKey> &
+    {
+      [Key in TKey]-?: Required<Pick<TValue, Key>> &
+        Partial<Pick<TValue, Exclude<TKey, Key>>>
+    }[TKey]
+
+export type DatoolResolvedSource<Row extends Record<string, unknown>> = {
   actions?: Record<string, DatoolAction<Row>>
+  get?: DatoolGetHandler<Row>
   getRowId?: DatoolGetRowIdHandler<Row>
   label?: string
-  open: DatoolOpenHandler
+  open?: DatoolOpenHandler
   parseLine: DatoolParseLineHandler<Row>
+  pollIntervalMs?: number
 }
 
-export type DatoolStreamDefinition<Row extends Record<string, unknown>> = {
+type DatoolSourceDefinitionBase<Row extends Record<string, unknown>> = {
   actions?: Record<string, DatoolAction<Row>>
+  get?: DatoolGetHandler<Row>
   getRowId?: DatoolGetRowIdHandler<Row>
   label?: string
   open?: DatoolOpenHandler
   parseLine?: DatoolParseLineHandler<Row>
+  pollIntervalMs?: number
   source?: DatoolSource
+  stream?: DatoolSource
 }
 
-export type DatoolStreamExport<Row extends Record<string, unknown>> =
+export type DatoolSourceDefinition<Row extends Record<string, unknown>> =
+  RequireAtLeastOne<
+    DatoolSourceDefinitionBase<Row>,
+    "get" | "open" | "source" | "stream"
+  >
+
+export type DatoolSourceExport<Row extends Record<string, unknown>> =
   | DatoolSource
-  | DatoolResolvedStream<Row>
-  | DatoolStreamDefinition<Row>
+  | DatoolResolvedSource<Row>
+  | DatoolSourceDefinition<Row>
+
+export type DatoolResolvedStream<Row extends Record<string, unknown>> =
+  DatoolResolvedSource<Row>
+
+export type DatoolStreamDefinition<Row extends Record<string, unknown>> =
+  DatoolSourceDefinition<Row>
+
+export type DatoolStreamExport<Row extends Record<string, unknown>> =
+  DatoolSourceExport<Row>
 
 export type DatoolClientAction = {
   button?: DatoolActionButtonConfig
@@ -197,11 +250,17 @@ export type DatoolClientAction = {
   label: string
 }
 
-export type DatoolClientStream = {
+export type DatoolClientSource = {
   actions: DatoolClientAction[]
   id: string
   label: string
+  pollIntervalMs?: number
+  supportsGet: boolean
+  supportsLive: boolean
+  supportsStream: boolean
 }
+
+export type DatoolClientStream = DatoolClientSource
 
 export type DatoolClientPage = {
   filePath: string
@@ -213,7 +272,8 @@ export type DatoolClientPage = {
 export type DatoolClientConfig = {
   dateFormat?: DatoolDateFormat
   pages: DatoolClientPage[]
-  streams: DatoolClientStream[]
+  sources: DatoolClientSource[]
+  streams: DatoolClientSource[]
 }
 
 export type DatoolApp = {
@@ -223,7 +283,8 @@ export type DatoolApp = {
     host?: string
     port?: number
   }
-  streams: Record<string, DatoolResolvedStream<Record<string, unknown>>>
+  sources: Record<string, DatoolResolvedSource<Record<string, unknown>>>
+  streams: Record<string, DatoolResolvedSource<Record<string, unknown>>>
   streamsPath: string
 }
 
@@ -247,3 +308,11 @@ export type DatoolActionRequest = {
 export type DatoolActionResponse = {
   rowChanges?: Array<Record<string, unknown> | boolean>
 }
+
+export type DatoolRowsResponse<Row extends Record<string, unknown> = Record<string, unknown>> =
+  DatoolGetResultMetadata & {
+    rows: Array<{
+      id: string
+      row: Row
+    }>
+  }

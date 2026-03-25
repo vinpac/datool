@@ -5,7 +5,7 @@ import {
   type DatoolEnumBadgeColor,
   type DatoolEnumColorMap,
 } from "../../shared/types"
-import { cn } from "@/lib/utils"
+import { cn } from "../lib/utils"
 
 const ENUM_BADGE_STYLES: Record<DatoolEnumBadgeColor, string> = {
   amber:

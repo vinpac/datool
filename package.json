@@ -11,6 +11,7 @@
     "build": "bun run --filter datool build",
     "typecheck": "bun run --filter datool typecheck",
     "test": "bun run --filter datool test",
+    "test:e2e": "bun run --filter datool test:e2e",
     "lint": "bun run --filter datool lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,md,json}\""
   },

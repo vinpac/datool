@@ -1,13 +1,29 @@
-import { commandSource } from "./node/sources/command"
-import { fileSource } from "./node/sources/file"
-import { sshSource } from "./node/sources/ssh"
+import { commandSource } from "./node/sources/command.ts"
+import { fileSource } from "./node/sources/file.ts"
+import { sshSource } from "./node/sources/ssh.ts"
+import type { DatoolSourceDefinition, DatoolStreamDefinition } from "./shared/types.ts"
 
-export * from "./shared/types"
-export { startDatoolServer } from "./node/server"
-export { Table, type DatoolColumns, type DatoolTableProps } from "./client/public"
+export * from "./shared/types.ts"
 
-export function defineStream<TStream>(stream: TStream) {
+export function defineStream<
+  Row extends Record<string, unknown>,
+  TStream extends DatoolStreamDefinition<Row>,
+>(stream: TStream) {
   return stream
+}
+
+export function defineSource<
+  Row extends Record<string, unknown>,
+  TSource extends DatoolSourceDefinition<Row>,
+>(sourceDefinition: TSource) {
+  return sourceDefinition
+}
+
+export function source<
+  Row extends Record<string, unknown>,
+  TSource extends DatoolSourceDefinition<Row>,
+>(definition: TSource) {
+  return definition
 }
 
 export function defineDatoolConfig<TConfig>(config: TConfig) {

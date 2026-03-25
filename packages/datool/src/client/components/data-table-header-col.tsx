@@ -7,14 +7,18 @@ import {
   DataTableColIcon,
   type DataTableColumnKind,
 } from "./data-table-col-icon"
-import type { DatoolEnumColorMap } from "../../shared/types"
-import { cn } from "@/lib/utils"
+import type {
+  DatoolDateFormat,
+  DatoolEnumColorMap,
+} from "../../shared/types"
+import { cn } from "../lib/utils"
 
 export type DataTableAlign = "left" | "center" | "right"
 
 export type DataTableColumnMeta = {
   align?: DataTableAlign
   cellClassName?: string
+  dateFormat?: DatoolDateFormat
   enumColors?: DatoolEnumColorMap
   enumOptions?: string[]
   headerClassName?: string

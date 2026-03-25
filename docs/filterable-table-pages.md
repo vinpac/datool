@@ -99,7 +99,7 @@ export function UsersPage() {
 
 - No `kind`: plain text search.
 - `kind: "enum"`: exact-match filter with options auto-detected from the current data.
-- `kind: "date"`: date-aware filter with operators like `>`, `<`, `today`, and `-7d`.
+- `kind: "date"`: date-aware filter with operators like `>`, `<`, `today`, and `-7d`. It also supports `dateFormat` as either `Intl.DateTimeFormatOptions` or a `date-fns` pattern string. Hover shows the full UTC timestamp, and clicking the rendered date copies the displayed value.
 - `kind: "json"`: text search against the serialized value.
 - `kind: "number"`: numeric filter with `:`, `>`, and `<`.
 

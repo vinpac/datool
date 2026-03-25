@@ -1,13 +1,15 @@
 import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
+import { defineConfig, searchForWorkspaceRoot } from "vite"
 
 const manifestPath =
   process.env.DATOOL_MANIFEST_PATH ??
   path.resolve(__dirname, "./src/client/default-manifest.tsx")
+const appRoot = process.env.DATOOL_APP_ROOT ?? __dirname
 const outDir = process.env.DATOOL_CLIENT_OUTDIR ?? "client-dist"
 const apiProxyTarget = process.env.DATOOL_API_PROXY_TARGET
+const packageRoot = __dirname
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -20,6 +22,14 @@ export default defineConfig({
   },
   server: apiProxyTarget
     ? {
+        fs: {
+          allow: [
+            searchForWorkspaceRoot(packageRoot),
+            packageRoot,
+            appRoot,
+            path.dirname(manifestPath),
+          ],
+        },
         proxy: {
           "/api": {
             changeOrigin: true,

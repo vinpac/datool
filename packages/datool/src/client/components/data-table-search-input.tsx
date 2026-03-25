@@ -14,14 +14,14 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
-} from "@/components/ui/input-group"
+} from "./ui/input-group"
 import {
   applySuggestionToValue,
   getSearchSuggestions,
   getSelectorHighlightRanges,
   type DataTableSearchField,
   type DataTableSearchSuggestion,
-} from "@/lib/data-table-search"
+} from "../lib/data-table-search"
 
 export type DataTableSearchInputHandle = {
   focus: () => void

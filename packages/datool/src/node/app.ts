@@ -3,14 +3,15 @@ import fsPromises from "fs/promises"
 import path from "path"
 import { pathToFileURL } from "url"
 
+import { assertDateFormatShape } from "../shared/date-format"
 import type {
   DatoolApp,
   DatoolClientConfig,
   DatoolClientPage,
   DatoolDateFormat,
-  DatoolResolvedStream,
-  DatoolStreamDefinition,
-  DatoolStreamExport,
+  DatoolResolvedSource,
+  DatoolSourceDefinition,
+  DatoolSourceExport,
 } from "../shared/types"
 import {
   LOG_VIEWER_ACTION_BUTTON_SIZES,
@@ -18,38 +19,33 @@ import {
   LOG_VIEWER_ICON_NAMES,
 } from "../shared/types"
 
-const STREAMS_FILENAMES = [
-  path.join("datool", "streams.ts"),
-  path.join("datool", "streams.mts"),
-  path.join("datool", "streams.js"),
-  path.join("datool", "streams.mjs"),
+const PRIMARY_APP_DIRECTORY_NAME = ".datool"
+const LEGACY_APP_DIRECTORY_NAME = "datool"
+const APP_DIRECTORY_NAMES = [
+  PRIMARY_APP_DIRECTORY_NAME,
+  LEGACY_APP_DIRECTORY_NAME,
+] as const
+const SOURCE_CONFIG_BASENAMES = [
+  "sources.ts",
+  "sources.mts",
+  "sources.js",
+  "sources.mjs",
+  "streams.ts",
+  "streams.mts",
+  "streams.js",
+  "streams.mjs",
 ]
 
 const PAGE_EXTENSIONS = new Set([".tsx", ".jsx"])
+const IGNORED_APP_SUBDIRECTORIES = new Set(["client-dist", "generated"])
 const RESERVED_EXPORT_NAMES = new Set(["dateFormat", "default", "server"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
-function isSource(value: unknown): value is { open: DatoolResolvedStream<Record<string, unknown>>["open"] } {
+function isSource(value: unknown): value is { open: NonNullable<DatoolResolvedSource<Record<string, unknown>>["open"]> } {
   return isRecord(value) && typeof value.open === "function"
-}
-
-function assertDateFormatShape(value: unknown) {
-  if (value === undefined) {
-    return
-  }
-
-  if (!isRecord(value)) {
-    throw new Error("datool/streams.ts dateFormat must be an object.")
-  }
-
-  try {
-    new Intl.DateTimeFormat(undefined, value as Intl.DateTimeFormatOptions)
-  } catch {
-    throw new Error("datool/streams.ts defines an invalid dateFormat.")
-  }
 }
 
 function assertActionButtonShape(
@@ -68,7 +64,7 @@ function assertActionButtonShape(
       )
     ) {
       throw new Error(
-        `Action "${actionId}" on stream "${streamId}" defines an invalid button variant.`
+        `Action "${actionId}" on source "${streamId}" defines an invalid button variant.`
       )
     }
 
@@ -77,7 +73,7 @@ function assertActionButtonShape(
 
   if (!isRecord(value)) {
     throw new Error(
-      `Action "${actionId}" on stream "${streamId}" must define button as false, a variant string, or an object.`
+      `Action "${actionId}" on source "${streamId}" must define button as false, a variant string, or an object.`
     )
   }
 
@@ -89,7 +85,7 @@ function assertActionButtonShape(
       ))
   ) {
     throw new Error(
-      `Action "${actionId}" on stream "${streamId}" defines an invalid button variant.`
+      `Action "${actionId}" on source "${streamId}" defines an invalid button variant.`
     )
   }
 
@@ -101,19 +97,19 @@ function assertActionButtonShape(
       ))
   ) {
     throw new Error(
-      `Action "${actionId}" on stream "${streamId}" defines an invalid button size.`
+      `Action "${actionId}" on source "${streamId}" defines an invalid button size.`
     )
   }
 
   if (value.className !== undefined && typeof value.className !== "string") {
     throw new Error(
-      `Action "${actionId}" on stream "${streamId}" defines an invalid button className.`
+      `Action "${actionId}" on source "${streamId}" defines an invalid button className.`
     )
   }
 
   if (value.label !== undefined && typeof value.label !== "string") {
     throw new Error(
-      `Action "${actionId}" on stream "${streamId}" defines an invalid button label.`
+      `Action "${actionId}" on source "${streamId}" defines an invalid button label.`
     )
   }
 }
@@ -125,19 +121,19 @@ function assertActionShape(
 ) {
   if (!isRecord(value)) {
     throw new Error(
-      `Action "${actionId}" on stream "${streamId}" must be an object.`
+      `Action "${actionId}" on source "${streamId}" must be an object.`
     )
   }
 
   if (typeof value.label !== "string" || !value.label) {
     throw new Error(
-      `Action "${actionId}" on stream "${streamId}" must define a label.`
+      `Action "${actionId}" on source "${streamId}" must define a label.`
     )
   }
 
   if (typeof value.resolve !== "function") {
     throw new Error(
-      `Action "${actionId}" on stream "${streamId}" must define a resolve() function.`
+      `Action "${actionId}" on source "${streamId}" must define a resolve() function.`
     )
   }
 
@@ -149,7 +145,7 @@ function assertActionShape(
       ))
   ) {
     throw new Error(
-      `Action "${actionId}" on stream "${streamId}" defines an invalid icon.`
+      `Action "${actionId}" on source "${streamId}" defines an invalid icon.`
     )
   }
 
@@ -199,15 +195,15 @@ function toPageId(relativePathWithoutExtension: string) {
 
 function defaultJsonParseLine({
   line,
-  streamId,
-}: Parameters<NonNullable<DatoolResolvedStream<Record<string, unknown>>["parseLine"]>>[0]) {
+  sourceId,
+}: Parameters<NonNullable<DatoolResolvedSource<Record<string, unknown>>["parseLine"]>>[0]) {
   try {
     return JSON.parse(line) as Record<string, unknown>
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
     throw new Error(
-      `Stream "${streamId}" emitted invalid JSONL. ${message}`
+      `Source "${sourceId}" emitted invalid JSONL. ${message}`
     )
   }
 }
@@ -215,20 +211,27 @@ function defaultJsonParseLine({
 function normalizeStreamExport(
   streamId: string,
   exportedValue: unknown
-): DatoolResolvedStream<Record<string, unknown>> {
+): DatoolResolvedSource<Record<string, unknown>> {
   if (!isRecord(exportedValue)) {
-    throw new Error(`Stream "${streamId}" must export an object.`)
+    throw new Error(`Source "${streamId}" must export an object.`)
   }
 
-  const definition = exportedValue as DatoolStreamDefinition<Record<string, unknown>> &
-    Partial<DatoolResolvedStream<Record<string, unknown>>>
+  const definition = exportedValue as DatoolSourceDefinition<Record<string, unknown>> &
+    Partial<DatoolResolvedSource<Record<string, unknown>>>
+  const get =
+    typeof definition.get === "function"
+      ? definition.get
+      : undefined
   const source = isSource(definition.source) ? definition.source : undefined
+  const stream = isSource(definition.stream) ? definition.stream : undefined
   const actions = isRecord(definition.actions) ? definition.actions : undefined
   const getRowId = definition.getRowId
   const label = definition.label
   const open =
     typeof definition.open === "function"
       ? definition.open
+      : stream && typeof stream.open === "function"
+        ? stream.open
       : source && typeof source.open === "function"
         ? source.open
         : undefined
@@ -237,9 +240,33 @@ function normalizeStreamExport(
       ? definition.parseLine
       : defaultJsonParseLine
 
-  if (typeof open !== "function") {
+  if (
+    "get" in definition &&
+    definition.get !== undefined &&
+    typeof definition.get !== "function"
+  ) {
+    throw new Error(`Source "${streamId}" get must be a function.`)
+  }
+
+  if (
+    "stream" in definition &&
+    definition.stream !== undefined &&
+    !isSource(definition.stream)
+  ) {
+    throw new Error(`Source "${streamId}" stream must define an open() function.`)
+  }
+
+  if (
+    "source" in definition &&
+    definition.source !== undefined &&
+    !isSource(definition.source)
+  ) {
+    throw new Error(`Source "${streamId}" source must define an open() function.`)
+  }
+
+  if (!get && typeof open !== "function") {
     throw new Error(
-      `Stream "${streamId}" must export a source, an open() function, or both.`
+      `Source "${streamId}" must define a get() function, a source.open() function, or both.`
     )
   }
 
@@ -247,7 +274,7 @@ function normalizeStreamExport(
     definition.actions !== undefined &&
     !isRecord(definition.actions)
   ) {
-    throw new Error(`Stream "${streamId}" actions must be an object.`)
+    throw new Error(`Source "${streamId}" actions must be an object.`)
   }
 
   for (const [actionId, action] of Object.entries(actions ?? {})) {
@@ -255,19 +282,26 @@ function normalizeStreamExport(
   }
 
   if (getRowId !== undefined && typeof getRowId !== "function") {
-    throw new Error(`Stream "${streamId}" getRowId must be a function.`)
+    throw new Error(`Source "${streamId}" getRowId must be a function.`)
   }
 
   if (label !== undefined && typeof label !== "string") {
-    throw new Error(`Stream "${streamId}" label must be a string.`)
+    throw new Error(`Source "${streamId}" label must be a string.`)
   }
+
+  const pollIntervalMs =
+    typeof definition.pollIntervalMs === "number" && definition.pollIntervalMs > 0
+      ? definition.pollIntervalMs
+      : undefined
 
   return {
     actions,
+    get,
     getRowId,
     label: label ?? toDefaultStreamLabel(streamId),
     open,
     parseLine,
+    pollIntervalMs,
   }
 }
 
@@ -283,6 +317,10 @@ async function discoverPagesInDirectory(directoryPath: string) {
     const absolutePath = path.join(directoryPath, entry.name)
 
     if (entry.isDirectory()) {
+      if (IGNORED_APP_SUBDIRECTORIES.has(entry.name)) {
+        continue
+      }
+
       pages.push(...(await discoverPagesInDirectory(absolutePath)))
       continue
     }
@@ -293,7 +331,11 @@ async function discoverPagesInDirectory(directoryPath: string) {
 
     const extension = path.extname(entry.name)
 
-    if (!PAGE_EXTENSIONS.has(extension) || entry.name === "streams.tsx") {
+    if (
+      !PAGE_EXTENSIONS.has(extension) ||
+      entry.name === "streams.tsx" ||
+      entry.name === "sources.tsx"
+    ) {
       continue
     }
 
@@ -303,29 +345,46 @@ async function discoverPagesInDirectory(directoryPath: string) {
   return pages
 }
 
-export function findStreamsPath(cwd: string) {
-  for (const relativePath of STREAMS_FILENAMES) {
-    const absolutePath = path.join(cwd, relativePath)
+export function findSourcesPath(cwd: string) {
+  for (const directoryName of APP_DIRECTORY_NAMES) {
+    for (const basename of SOURCE_CONFIG_BASENAMES) {
+      const absolutePath = path.join(cwd, directoryName, basename)
 
-    if (fs.existsSync(absolutePath)) {
-      return absolutePath
+      if (fs.existsSync(absolutePath)) {
+        return absolutePath
+      }
     }
   }
 
   return null
 }
 
-export async function discoverDatoolPages(cwd: string) {
-  const appDirectory = path.join(cwd, "datool")
+export const findStreamsPath = findSourcesPath
+
+export function resolveDatoolAppDirectory(cwd: string) {
+  const sourcesPath = findSourcesPath(cwd)
+
+  if (sourcesPath) {
+    return path.dirname(sourcesPath)
+  }
+
+  return path.join(cwd, PRIMARY_APP_DIRECTORY_NAME)
+}
+
+export async function discoverDatoolPages(cwd: string, appDirectory = resolveDatoolAppDirectory(cwd)) {
 
   if (!fs.existsSync(appDirectory)) {
-    throw new Error(`Could not find datool pages directory in ${cwd}.`)
+    throw new Error(
+      `Could not find a datool pages directory (${PRIMARY_APP_DIRECTORY_NAME} or legacy ${LEGACY_APP_DIRECTORY_NAME}) in ${cwd}.`
+    )
   }
 
   const files = await discoverPagesInDirectory(appDirectory)
 
   if (files.length === 0) {
-    throw new Error("The datool app must define at least one page in datool/*.tsx.")
+    throw new Error(
+      `The datool app must define at least one page in ${PRIMARY_APP_DIRECTORY_NAME}/*.tsx (or legacy ${LEGACY_APP_DIRECTORY_NAME}/*.tsx).`
+    )
   }
 
   return files.map<DatoolClientPage>((filePath) => {
@@ -352,11 +411,11 @@ export async function loadDatoolApp(options: {
 
   if (!streamsPath) {
     throw new Error(
-      `Could not find datool/streams.ts in ${options.cwd}.`
+      `Could not find ${PRIMARY_APP_DIRECTORY_NAME}/sources.ts (or legacy datool/sources.ts / datool/streams.ts) in ${options.cwd}.`
     )
   }
 
-  const pages = await discoverDatoolPages(options.cwd)
+  const pages = await discoverDatoolPages(options.cwd, path.dirname(streamsPath))
   const streamStats = await fsPromises.stat(streamsPath)
   const streamsUrl = pathToFileURL(streamsPath)
 
@@ -366,6 +425,7 @@ export async function loadDatoolApp(options: {
   )
 
   const importedModule = (await import(
+    /* webpackIgnore: true */
     streamsUrl.href
   )) as Record<string, unknown>
   const dateFormat = importedModule.dateFormat as DatoolDateFormat | undefined
@@ -374,7 +434,7 @@ export async function loadDatoolApp(options: {
   assertDateFormatShape(dateFormat)
 
   if (server !== undefined && !isRecord(server)) {
-    throw new Error("datool/streams.ts server must be an object.")
+    throw new Error("The datool source config server export must be an object.")
   }
 
   const entries = Object.entries(importedModule).filter(
@@ -382,22 +442,23 @@ export async function loadDatoolApp(options: {
   )
 
   if (entries.length === 0) {
-    throw new Error("datool/streams.ts must export at least one stream.")
+    throw new Error("The datool source config must export at least one source.")
   }
 
-  const streams = Object.fromEntries(
+  const sources = Object.fromEntries(
     entries.map(([streamId, exportedValue]) => [
       streamId,
       normalizeStreamExport(streamId, exportedValue),
     ])
-  ) satisfies DatoolApp["streams"]
+  ) satisfies DatoolApp["sources"]
 
   return {
     app: {
       dateFormat,
       pages,
       server,
-      streams,
+      sources,
+      streams: sources,
       streamsPath,
     } satisfies DatoolApp,
     streamsPath,
@@ -405,22 +466,29 @@ export async function loadDatoolApp(options: {
 }
 
 export function toClientConfig(app: DatoolApp): DatoolClientConfig {
+  const sources = Object.entries(app.sources).map(([id, source]) => ({
+    actions: Object.entries(source.actions ?? {}).map(([actionId, action]) => ({
+      button: action.button,
+      icon: action.icon,
+      id: actionId,
+      label: action.label,
+    })),
+    id,
+    label: source.label ?? toDefaultStreamLabel(id),
+    pollIntervalMs: source.pollIntervalMs,
+    supportsGet: typeof source.get === "function",
+    supportsLive: typeof source.open === "function",
+    supportsStream: typeof source.open === "function",
+  }))
+
   return {
     dateFormat: app.dateFormat,
     pages: app.pages,
-    streams: Object.entries(app.streams).map(([id, stream]) => ({
-      actions: Object.entries(stream.actions ?? {}).map(([actionId, action]) => ({
-        button: action.button,
-        icon: action.icon,
-        id: actionId,
-        label: action.label,
-      })),
-      id,
-      label: stream.label ?? toDefaultStreamLabel(id),
-    })),
+    sources,
+    streams: sources,
   }
 }
 
 export function getStreamFromApp(app: DatoolApp, streamId: string) {
-  return app.streams[streamId] ?? null
+  return app.sources[streamId] ?? null
 }

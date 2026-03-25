@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { NavLink, useLocation } from "react-router-dom"
+import { DatoolLink as Link } from "../navigation"
 import {
   FileTextIcon,
   FolderIcon,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 
 import type { DatoolClientPage } from "../../shared/types"
+import { useDatoolNavigation } from "../navigation"
 import {
   Sidebar,
   SidebarContent,
@@ -23,7 +24,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-} from "@/components/ui/sidebar"
+} from "./ui/sidebar"
 
 type SidebarGroupItem = {
   pages: DatoolClientPage[]
@@ -85,10 +86,10 @@ function PageLink({
     return (
       <SidebarMenuSubItem>
         <SidebarMenuSubButton asChild isActive={isActive}>
-          <NavLink to={page.path}>
+          <Link page={page.path}>
             <FileTextIcon />
             <span>{page.title}</span>
-          </NavLink>
+          </Link>
         </SidebarMenuSubButton>
       </SidebarMenuSubItem>
     )
@@ -97,10 +98,10 @@ function PageLink({
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={isActive}>
-        <NavLink to={page.path}>
+        <Link page={page.path}>
           {page.path === "/" ? <HomeIcon /> : <FileTextIcon />}
           <span>{page.title}</span>
-        </NavLink>
+        </Link>
       </SidebarMenuButton>
     </SidebarMenuItem>
   )
@@ -112,7 +113,7 @@ export function AppSidebar({
 }: React.ComponentProps<typeof Sidebar> & {
   pages: DatoolClientPage[]
 }) {
-  const location = useLocation()
+  const location = useDatoolNavigation()
   const sidebar = React.useMemo(() => buildSidebarGroups(pages), [pages])
 
   return (
@@ -121,10 +122,10 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={location.pathname === "/"}>
-              <NavLink to="/">
+              <Link page="/">
                 <PanelLeftIcon />
                 <span>Datool</span>
-              </NavLink>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

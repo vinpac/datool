@@ -7,7 +7,7 @@ import {
   XIcon,
 } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
+import { Button } from "./ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,52 +16,57 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { ConnectionStatus } from "@/components/connection-status"
-import { cn } from "@/lib/utils"
-import type { DatoolClientStream } from "../../shared/types"
+} from "./ui/dropdown-menu"
+import { ConnectionStatus } from "./connection-status"
+import { cn } from "../lib/utils"
+import type { DatoolClientSource } from "../../shared/types"
 
 type StreamControlsProps = {
-  streams: DatoolClientStream[]
-  selectedStreamId: string | null
+  sources: DatoolClientSource[]
+  selectedSourceId: string | null
   isConnected: boolean
   isConnecting: boolean
+  canLiveUpdate?: boolean
   isDisabled?: boolean
   canClear?: boolean
   onClear: () => void
   onPause: () => void
   onPlay: () => void
-  onSelectStream: (streamId: string) => void
+  onSelectSource: (sourceId: string) => void
   className?: string
 }
 
 export function StreamControls({
-  streams,
-  selectedStreamId,
+  sources,
+  selectedSourceId,
   isConnected,
   isConnecting,
+  canLiveUpdate = true,
   isDisabled = false,
   canClear = true,
   onClear,
   onPause,
   onPlay,
-  onSelectStream,
+  onSelectSource,
   className,
 }: StreamControlsProps) {
-  const selectedStreamLabel = React.useMemo(() => {
-    if (!selectedStreamId) {
-      return streams[0]?.label ?? "Select a stream"
+  const selectedSourceLabel = React.useMemo(() => {
+    if (!selectedSourceId) {
+      return sources[0]?.label ?? "Select a source"
     }
 
     return (
-      streams.find((stream) => stream.id === selectedStreamId)?.label ??
-      "Select a stream"
+      sources.find((source) => source.id === selectedSourceId)?.label ??
+      "Select a source"
     )
-  }, [selectedStreamId, streams])
+  }, [selectedSourceId, sources])
 
-  const canOpenMenu = !isDisabled && streams.length > 0
-  const canPlay = !isDisabled && Boolean(selectedStreamId) && !isConnecting
-  const playButtonLabel = isConnected ? "Pause stream" : "Play stream"
+  const canOpenMenu = !isDisabled && sources.length > 0
+  const canPlay =
+    !isDisabled && canLiveUpdate && Boolean(selectedSourceId) && !isConnecting
+  const playButtonLabel = isConnected
+    ? "Pause live updates"
+    : "Resume live updates"
 
   return (
     <div className="flex items-center gap-2">
@@ -79,7 +84,7 @@ export function StreamControls({
               className="h-10 min-w-0 border-0 flex-1 justify-between"
               disabled={!canOpenMenu}
             >
-              <span className="truncate text-sm">{selectedStreamLabel}</span>
+              <span className="truncate text-sm">{selectedSourceLabel}</span>
               <ChevronDownIcon className="size-4 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
@@ -95,19 +100,19 @@ export function StreamControls({
               />
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Streams</DropdownMenuLabel>
+            <DropdownMenuLabel>Sources</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuRadioGroup
-              value={selectedStreamId ?? ""}
-              onValueChange={onSelectStream}
+              value={selectedSourceId ?? ""}
+              onValueChange={onSelectSource}
             >
-              {streams.map((stream) => (
+              {sources.map((source) => (
                 <DropdownMenuRadioItem
-                  key={stream.id}
-                  value={stream.id}
+                  key={source.id}
+                  value={source.id}
                   className="min-h-9 text-sm"
                 >
-                  {stream.label}
+                  {source.label}
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>

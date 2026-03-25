@@ -135,7 +135,7 @@ async function collectSseEvents(
 }
 
 describe("server integration", () => {
-  test("serves config and streams command rows", async () => {
+  test("serves config and source rows", async () => {
     const cwd = path.join(workspaceRoot, "examples/command-jsonl")
     const server = await startDatoolServer({
       cwd,
@@ -151,7 +151,7 @@ describe("server integration", () => {
           path: string
           title: string
         }>
-        streams: Array<{
+        sources: Array<{
           actions: Array<{
             button?: string | false
             icon?: string
@@ -159,17 +159,34 @@ describe("server integration", () => {
             label: string
           }>
           id: string
+          supportsGet: boolean
+          supportsLive: boolean
+          supportsStream: boolean
+        }>
+        streams: Array<{
+          id: string
         }>
       }
 
-      expect(config.pages).toEqual([
-        expect.objectContaining({
-          path: "/",
-          title: "Home",
-        }),
-      ])
-      expect(config.streams.map((stream) => stream.id)).toEqual(["demo"])
-      expect(config.streams[0]?.actions).toEqual([
+      expect(config.pages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "/",
+            title: "Home",
+          }),
+          expect.objectContaining({
+            path: "/traces",
+            title: "Traces",
+          }),
+        ])
+      )
+      expect(config.sources.map((source) => source.id)).toEqual(
+        expect.arrayContaining(["demo", "sampleWorkflow"])
+      )
+      expect(config.streams.map((source) => source.id)).toEqual(
+        expect.arrayContaining(["demo", "sampleWorkflow"])
+      )
+      expect(config.sources[0]?.actions).toEqual([
         {
           button: "destructive",
           icon: "Trash",
@@ -183,9 +200,15 @@ describe("server integration", () => {
           label: "Abort Run",
         },
       ])
+      expect(config.sources[0]?.supportsGet).toBe(false)
+      expect(config.sources[0]?.supportsLive).toBe(true)
+      expect(config.sources[0]?.supportsStream).toBe(true)
+      expect(config.sources[1]?.supportsGet).toBe(true)
+      expect(config.sources[1]?.supportsLive).toBe(false)
+      expect(config.sources[1]?.supportsStream).toBe(false)
 
       const response = await fetch(
-        `${server.url}/api/streams/demo/events?stream=demo&history=3`
+        `${server.url}/api/sources/demo/events?source=demo&history=3`
       )
       const events = await collectSseEvents(response, 3)
       const rows = events
@@ -193,7 +216,44 @@ describe("server integration", () => {
         .map((event) => JSON.parse(event.data) as { row: { message: string } })
 
       expect(rows).toHaveLength(3)
-      expect(rows[0]?.row.message).toContain("Command event")
+      expect(rows[0]?.row.message).toContain("Run")
+    } finally {
+      server.stop()
+    }
+  })
+
+  test("serves non-live rows from get()", async () => {
+    const cwd = path.join(workspaceRoot, "examples/command-jsonl")
+    const server = await startDatoolServer({
+      cwd,
+      port: 0,
+    })
+
+    try {
+      const response = await fetch(
+        `${server.url}/api/sources/sampleWorkflow/rows?source=sampleWorkflow&page=1&limit=2`
+      )
+
+      expect(response.ok).toBe(true)
+      expect(await response.json()).toEqual({
+        nextOffset: 2,
+        nextPage: 2,
+        rows: [
+          expect.objectContaining({
+            id: "sampleWorkflow:0",
+            row: expect.objectContaining({
+              event: "workflow_enqueued",
+            }),
+          }),
+          expect.objectContaining({
+            id: "sampleWorkflow:1",
+            row: expect.objectContaining({
+              event: "workflow_started",
+            }),
+          }),
+        ],
+        total: expect.any(Number),
+      })
     } finally {
       server.stop()
     }
@@ -208,7 +268,7 @@ describe("server integration", () => {
 
     try {
       const response = await fetch(
-        `${server.url}/api/streams/demo/actions/abort?stream=demo&history=2`,
+        `${server.url}/api/sources/demo/actions/abort?source=demo&history=2`,
         {
           body: JSON.stringify({
             rows: [
@@ -243,7 +303,7 @@ describe("server integration", () => {
     }
   })
 
-  test("streams file history and appended lines", async () => {
+  test("serves file source history and appended lines", async () => {
     const projectDir = path.join(workspaceRoot, "examples/file-tail")
     const fixturePath = path.join(projectDir, "fixtures/app.log")
     const originalFixture = await fs.readFile(fixturePath, "utf8")
@@ -255,7 +315,7 @@ describe("server integration", () => {
 
     try {
       const response = await fetch(
-        `${server.url}/api/streams/file/events?stream=file&history=5`
+        `${server.url}/api/sources/file/events?source=file&history=5`
       )
 
       const collectPromise = collectSseEvents(response, 6)

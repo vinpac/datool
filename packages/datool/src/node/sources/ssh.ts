@@ -1,5 +1,5 @@
-import { commandSource } from "./command"
-import type { DatoolSource } from "../../shared/types"
+import { commandSource } from "./command.ts"
+import type { DatoolSource } from "../../shared/types.ts"
 
 type Resolver<T> = T | ((context: { query: URLSearchParams }) => T)
 

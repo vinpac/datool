@@ -1,13 +1,13 @@
 import type { FilterFn } from "@tanstack/react-table"
 
-import { type DataTableColumnConfig } from "@/components/data-table"
+import { type DataTableColumnConfig } from "../components/data-table"
 import {
   buildEnumOptions,
   matchesFieldClauses,
   type DataTableSearchField,
   type DataTableSearchFieldKind,
   type DataTableSearchFilterClause,
-} from "@/lib/data-table-search"
+} from "./data-table-search"
 
 type TableRow = Record<string, unknown>
 

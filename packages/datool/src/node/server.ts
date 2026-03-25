@@ -5,7 +5,7 @@ import path from "path"
 import { buildDatoolClient } from "./client"
 import { getStreamFromApp, loadDatoolApp, toClientConfig } from "./app"
 import { getClientDistDirectory } from "./generated"
-import { openStreamRuntime } from "./runtime"
+import { DatoolInputError, getStreamRows, openStreamRuntime } from "./runtime"
 import type {
   DatoolActionRequest,
   DatoolActionRowChange,
@@ -40,6 +40,7 @@ const SSE_HEADERS = {
 } as const
 
 const MAX_PORT_ATTEMPTS = 10
+const SSE_HEARTBEAT_INTERVAL_MS = 5_000
 
 async function loadClientIndexHtml(clientDistDirectory: string) {
   const indexPath = path.join(clientDistDirectory, "index.html")
@@ -183,7 +184,7 @@ async function createActionResponse(
   if (!stream) {
     return jsonResponse(
       {
-        error: `Unknown stream "${streamId}".`,
+        error: `Unknown source "${streamId}".`,
       },
       404
     )
@@ -194,7 +195,7 @@ async function createActionResponse(
   if (!action) {
     return jsonResponse(
       {
-        error: `Unknown action "${actionId}" for stream "${streamId}".`,
+        error: `Unknown action "${actionId}" for source "${streamId}".`,
       },
       404
     )
@@ -227,6 +228,7 @@ async function createActionResponse(
       actionId,
       query,
       rows: body.rows,
+      sourceId: streamId,
       streamId,
     })
 
@@ -263,7 +265,7 @@ function createSseResponse(
   if (!stream) {
     return jsonResponse(
       {
-        error: `Unknown stream "${streamId}".`,
+        error: `Unknown source "${streamId}".`,
       },
       404
     )
@@ -288,7 +290,7 @@ function createSseResponse(
         if (!abortController.signal.aborted) {
           send("heartbeat", { ok: true })
         }
-      }, 15_000)
+      }, SSE_HEARTBEAT_INTERVAL_MS)
 
       void openStreamRuntime(
         streamId,
@@ -335,6 +337,44 @@ function createSseResponse(
   })
 }
 
+async function createRowsResponse(
+  app: DatoolApp,
+  streamId: string,
+  query: URLSearchParams,
+  requestSignal: AbortSignal
+) {
+  const stream = getStreamFromApp(app, streamId)
+
+  if (!stream) {
+    return jsonResponse(
+      {
+        error: `Unknown source "${streamId}".`,
+      },
+      404
+    )
+  }
+
+  if (!stream.get) {
+    return jsonResponse(
+      {
+        error: `Source "${streamId}" does not define get().`,
+      },
+      404
+    )
+  }
+
+  try {
+    return jsonResponse(await getStreamRows(streamId, stream, query, requestSignal))
+  } catch (error) {
+    return jsonResponse(
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+      error instanceof DatoolInputError ? 400 : 500
+    )
+  }
+}
+
 export async function startDatoolServer(
   options: StartServerOptions = {}
 ): Promise<DatoolServerHandle> {
@@ -345,7 +385,7 @@ export async function startDatoolServer(
     streamsPath: options.streamsPath,
   })
   const host = options.host ?? app.server?.host ?? "127.0.0.1"
-  const requestedPort = options.port ?? app.server?.port ?? 3210
+  const requestedPort = options.port ?? app.server?.port ?? 4000
   const clientDistDirectory = getClientDistDirectory(cwd)
 
   if (clientMode === "auto") {
@@ -364,8 +404,20 @@ export async function startDatoolServer(
       cwd,
       streamsPath,
     })
-  const fetch = async (request: Request) => {
+  const fetch = async (
+    request: Request,
+    server: { timeout: (request: Request, seconds: number) => void }
+  ) => {
     const url = new URL(request.url)
+    const sourcePathPrefix = "/api/sources/"
+    const streamPathPrefix = "/api/streams/"
+    const sourcePathPrefixInUse = url.pathname.startsWith(sourcePathPrefix)
+    const streamPathPrefixInUse = url.pathname.startsWith(streamPathPrefix)
+    const resourcePathPrefix = sourcePathPrefixInUse
+      ? sourcePathPrefix
+      : streamPathPrefixInUse
+        ? streamPathPrefix
+        : null
 
     if (url.pathname === "/api/config") {
       const { app: nextApp } = await loadApp()
@@ -374,31 +426,54 @@ export async function startDatoolServer(
     }
 
     if (
-      url.pathname.startsWith("/api/streams/") &&
-      url.pathname.endsWith("/events")
+      request.method === "GET" &&
+      resourcePathPrefix &&
+      url.pathname.endsWith("/rows")
     ) {
       const streamId = decodeURIComponent(
         url.pathname
-          .slice("/api/streams/".length, -"/events".length)
+          .slice(resourcePathPrefix.length, -"/rows".length)
           .replace(/\/+$/, "")
       )
       const query = new URLSearchParams(url.searchParams)
 
+      query.delete("source")
       query.delete("stream")
 
       const { app: nextApp } = await loadApp()
 
+      return createRowsResponse(nextApp, streamId, query, request.signal)
+    }
+
+    if (
+      resourcePathPrefix &&
+      url.pathname.endsWith("/events")
+    ) {
+      const streamId = decodeURIComponent(
+        url.pathname
+          .slice(resourcePathPrefix.length, -"/events".length)
+          .replace(/\/+$/, "")
+      )
+      const query = new URLSearchParams(url.searchParams)
+
+      query.delete("source")
+      query.delete("stream")
+
+      const { app: nextApp } = await loadApp()
+
+      server.timeout(request, 0)
       return createSseResponse(nextApp, streamId, query, request.signal)
     }
 
     if (
       request.method === "POST" &&
-      url.pathname.startsWith("/api/streams/") &&
+      resourcePathPrefix &&
       url.pathname.includes("/actions/")
     ) {
-      const pathMatch = url.pathname.match(
-        /^\/api\/streams\/(.+?)\/actions\/(.+?)\/?$/
-      )
+      const actionPathPattern = sourcePathPrefixInUse
+        ? /^\/api\/sources\/(.+?)\/actions\/(.+?)\/?$/
+        : /^\/api\/streams\/(.+?)\/actions\/(.+?)\/?$/
+      const pathMatch = url.pathname.match(actionPathPattern)
 
       if (!pathMatch) {
         return new Response("Not found", {
@@ -410,6 +485,7 @@ export async function startDatoolServer(
       const actionId = decodeURIComponent(pathMatch[2] ?? "")
       const query = new URLSearchParams(url.searchParams)
 
+      query.delete("source")
       query.delete("stream")
 
       const { app: nextApp } = await loadApp()
@@ -425,7 +501,7 @@ export async function startDatoolServer(
 
     const assetPath = getClientAssetPath(clientDistDirectory, url.pathname)
 
-    if (assetPath && fs.existsSync(assetPath)) {
+    if (assetPath && fs.existsSync(assetPath) && fs.statSync(assetPath).isFile()) {
       return new Response(Bun.file(assetPath))
     }
 
