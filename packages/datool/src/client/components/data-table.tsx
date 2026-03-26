@@ -172,6 +172,7 @@ export type DataTableColumnConfig<TData extends DataTableRow> = {
   enableSorting?: boolean
   enumColors?: DatoolEnumColorMap
   enumOptions?: string[]
+  enumVariant?: "default" | "outline"
   filterFn?: FilterFn<TData>
   header?: string
   headerClassName?: string
@@ -709,6 +710,7 @@ function buildColumns<TData extends DataTableRow>(
       dateFormat: kind === "date" ? column.dateFormat : undefined,
       enumColors: kind === "enum" ? column.enumColors : undefined,
       enumOptions: kind === "enum" ? column.enumOptions : undefined,
+      enumVariant: kind === "enum" ? column.enumVariant : undefined,
       headerClassName: column.headerClassName,
       highlightMatches:
         column.highlightMatches ?? (kind === "text" ? true : false),
@@ -720,6 +722,7 @@ function buildColumns<TData extends DataTableRow>(
         dateFormat: column.dateFormat ?? dateFormat,
         enumColors: kind === "enum" ? column.enumColors : undefined,
         enumOptions: kind === "enum" ? column.enumOptions : undefined,
+        enumVariant: kind === "enum" ? column.enumVariant : undefined,
       })
 
     return {
@@ -2493,6 +2496,7 @@ function DataTableView<TData extends DataTableRow>({
                     dateFormat: groupingMeta?.dateFormat ?? dateFormat,
                     enumColors: groupingMeta?.enumColors,
                     enumOptions: groupingMeta?.enumOptions,
+                    enumVariant: groupingMeta?.enumVariant,
                   })
                 : null
               const hasVisibleGroupedCell = groupVisibleCells.some((cell) =>

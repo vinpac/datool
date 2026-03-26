@@ -119,6 +119,7 @@ function fallbackCellValue(
   kind?: DataTableColumnKind,
   options?: {
     dateFormat?: DatoolDateFormat
+    enumVariant?: "default" | "outline"
     enumColors?: DatoolEnumColorMap
     enumOptions?: string[]
   }
@@ -132,6 +133,7 @@ function fallbackCellValue(
       <EnumBadge
         colors={options?.enumColors}
         options={options?.enumOptions}
+        variant={options?.enumVariant}
         value={String(value)}
       />
     )
@@ -354,6 +356,7 @@ function areColumnMetaEqual(
     areDateFormatsEqual(left.dateFormat, right.dateFormat) &&
     areRecordValuesEqual(left.enumColors, right.enumColors) &&
     areStringArraysEqual(left.enumOptions, right.enumOptions) &&
+    left.enumVariant === right.enumVariant &&
     left.headerClassName === right.headerClassName &&
     left.highlightMatches === right.highlightMatches &&
     left.kind === right.kind &&
@@ -430,6 +433,7 @@ function DataTableBodyCellInner<TData>({
           dateFormat: resolvedDateFormat,
           enumColors: meta.enumColors,
           enumOptions: meta.enumOptions,
+          enumVariant: meta.enumVariant,
         }))
 
   return (

@@ -35,7 +35,8 @@ import {
   quoteSearchTokenValue,
   splitSearchQuery,
 } from "../lib/data-table-search"
-import { useDatoolState, useDatoolJsonState } from "../hooks/use-datool-state"
+import { useDatoolState } from "../hooks/use-datool-state"
+import { useOptionalDatoolContext } from "../providers/datool-context"
 import { downloadTextFile, sanitizeFilePart } from "../lib/file-download"
 import type { DatoolColumn, DatoolSortingState } from "../table-types"
 
@@ -387,13 +388,21 @@ export function DatoolDataTable({
     [location.pathname]
   )
 
-  // ---- Persisted state via DatoolStateManager ----
+  // ---- State manager (direct access for compound table state) ----
+  const datoolCtx = useOptionalDatoolContext()
+  const stateManager = datoolCtx?.stateManager ?? null
+
   const searchStateKey = `${tableId}-search`
   const tableStateKey = `datatable-${tableId}`
 
   const [persistedSearch, setPersistedSearch] = useDatoolState(searchStateKey)
-  const [persistedTableState, setPersistedTableState] =
-    useDatoolJsonState<PersistedTableState>(tableStateKey, {})
+
+  // Read initial table state directly from state manager (avoids object-ref cycles)
+  function readTableState(ids: string[]): PersistedTableState {
+    const raw = stateManager?.get(tableStateKey)
+    if (!raw) return {}
+    try { return JSON.parse(raw) as PersistedTableState } catch { return {} }
+  }
 
   const columns = React.useMemo(() => buildTableColumns(declaredColumns), [declaredColumns])
 
@@ -413,19 +422,31 @@ export function DatoolDataTable({
     [exportColumns]
   )
 
-  // ---- Derive local state from persisted state ----
+  // ---- Local state (initialized from state manager) ----
   const [search, setSearchInternal] = React.useState(persistedSearch)
   const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>(
-    () => sanitizeColumnSizing(persistedTableState.columnSizing, columnIds)
+    () => sanitizeColumnSizing(readTableState(columnIds).columnSizing, columnIds)
   )
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
-    () => sanitizeColumnVisibility(persistedTableState.columnVisibility, columnIds)
+    () => sanitizeColumnVisibility(readTableState(columnIds).columnVisibility, columnIds)
   )
   const [groupedColumnIds, setGroupedColumnIds] = React.useState<string[]>(
-    () => sanitizeGroupBy(persistedTableState.groupBy, columnIds)
+    () => sanitizeGroupBy(readTableState(columnIds).groupBy, columnIds)
   )
 
-  // Sync persisted search → local search + source context (handles back/forward)
+  // Subscribe to state manager for back/forward nav (popstate, storage, etc.)
+  React.useEffect(() => {
+    if (!stateManager) return
+    return stateManager.subscribe(() => {
+      const tableState = readTableState(columnIds)
+      setColumnSizing(sanitizeColumnSizing(tableState.columnSizing, columnIds))
+      setColumnVisibility(sanitizeColumnVisibility(tableState.columnVisibility, columnIds))
+      setGroupedColumnIds(sanitizeGroupBy(tableState.groupBy, columnIds))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateManager, tableStateKey, columnIds])
+
+  // Sync persisted search → local (back/forward)
   const [prevPersistedSearch, setPrevPersistedSearch] = React.useState(persistedSearch)
   if (persistedSearch !== prevPersistedSearch) {
     setPrevPersistedSearch(persistedSearch)
@@ -433,21 +454,11 @@ export function DatoolDataTable({
     setSourceSearch(persistedSearch)
   }
 
-  // Sync persisted table state → local state (handles back/forward)
-  const [prevPersistedTableState, setPrevPersistedTableState] = React.useState(persistedTableState)
-  if (persistedTableState !== prevPersistedTableState) {
-    setPrevPersistedTableState(persistedTableState)
-    setColumnSizing(sanitizeColumnSizing(persistedTableState.columnSizing, columnIds))
-    setColumnVisibility(sanitizeColumnVisibility(persistedTableState.columnVisibility, columnIds))
-    setGroupedColumnIds(sanitizeGroupBy(persistedTableState.groupBy, columnIds))
-  }
-
   // Init: sync persisted search to source context on mount
   React.useEffect(() => {
     if (persistedSearch) {
       setSourceSearch(persistedSearch)
     }
-    // Only on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -467,19 +478,27 @@ export function DatoolDataTable({
     [setSourceSearch, setPersistedSearch]
   )
 
-  // Persist table state (debounced via useDatoolJsonState)
+  // Debounced write-through for table state
   React.useEffect(() => {
-    const nextColumnSizing = sanitizeColumnSizing(columnSizing, columnIds)
-    const nextColumnVisibility = sanitizeColumnVisibility(columnVisibility, columnIds)
-    const nextGroupBy = sanitizeGroupBy(groupedColumnIds, columnIds)
+    if (!stateManager) return
+    const timeoutId = window.setTimeout(() => {
+      const nextColumnSizing = sanitizeColumnSizing(columnSizing, columnIds)
+      const nextColumnVisibility = sanitizeColumnVisibility(columnVisibility, columnIds)
+      const nextGroupBy = sanitizeGroupBy(groupedColumnIds, columnIds)
 
-    const next: PersistedTableState = {}
-    if (Object.keys(nextColumnSizing).length > 0) next.columnSizing = nextColumnSizing
-    if (Object.keys(nextColumnVisibility).length > 0) next.columnVisibility = nextColumnVisibility
-    if (nextGroupBy.length > 0) next.groupBy = nextGroupBy
+      const next: PersistedTableState = {}
+      if (Object.keys(nextColumnSizing).length > 0) next.columnSizing = nextColumnSizing
+      if (Object.keys(nextColumnVisibility).length > 0) next.columnVisibility = nextColumnVisibility
+      if (nextGroupBy.length > 0) next.groupBy = nextGroupBy
 
-    setPersistedTableState(next)
-  }, [columnIds, columnSizing, columnVisibility, groupedColumnIds, setPersistedTableState])
+      if (Object.keys(next).length > 0) {
+        stateManager.set(tableStateKey, JSON.stringify(next))
+      } else {
+        stateManager.delete(tableStateKey)
+      }
+    }, 300)
+    return () => window.clearTimeout(timeoutId)
+  }, [columnIds, columnSizing, columnVisibility, groupedColumnIds, stateManager, tableStateKey])
 
   // Cmd+F
   React.useEffect(() => {

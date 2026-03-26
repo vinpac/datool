@@ -21,6 +21,7 @@ export type DataTableColumnMeta = {
   dateFormat?: DatoolDateFormat
   enumColors?: DatoolEnumColorMap
   enumOptions?: string[]
+  enumVariant?: "default" | "outline"
   headerClassName?: string
   highlightMatches?: boolean
   kind?: DataTableColumnKind

@@ -42,7 +42,7 @@ export type { DatoolStateManager } from "./lib/state-manager"
 export { createQueryParamsStateManager, createLocalStorageStateManager } from "./lib/state-manager"
 
 // State hooks
-export { useDatoolState, useDatoolJsonState } from "./hooks/use-datool-state"
+export { useDatoolState } from "./hooks/use-datool-state"
 export { parseJSONL, traceLifecycleSchema }
 
 // Composable providers

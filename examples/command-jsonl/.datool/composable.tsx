@@ -106,6 +106,7 @@ const columns: DatoolColumn<WorkflowRow>[] = [
       queued: "zinc",
       running: "sky",
     },
+    enumVariant: "outline",
   },
   { accessorKey: "workflow", header: "Workflow", kind: "enum", width: 180 },
   { accessorKey: "duration", header: "Duration (s)", kind: "number", width: 120 },
