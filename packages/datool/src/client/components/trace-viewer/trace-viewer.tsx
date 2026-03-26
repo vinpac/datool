@@ -152,18 +152,21 @@ export function TraceViewerTimeline({
   footer,
   knownDurationMs,
   hasMoreData = false,
+  hideSearchBar: hideSearchBarProp = false,
 }: Omit<TraceViewerProps, 'getQuickLinks'> & {
   footer?: ReactNode;
   /** Duration in ms from trace start to the latest known event. Used to render the unknown-time overlay. */
   knownDurationMs?: number;
   /** Whether more data pages are expected. Controls the unknown-data overlay visibility. */
   hasMoreData?: boolean;
+  /** Hide the built-in search bar (e.g. when search is provided externally). */
+  hideSearchBar?: boolean;
 }): ReactNode {
   const isSkeleton = trace === skeletonTrace;
   const { state, dispatch } = useTraceViewer();
   const { timelineRef, scrollSnapshotRef } = state;
   const memoCache = state.memoCacheRef.current;
-  const hideSearchBar = (highlightedSpans?.length ?? 0) > 0;
+  const hideSearchBar = (highlightedSpans?.length ?? 0) > 0 || hideSearchBarProp;
   const hasRunningSpans = trace.spans.some((span) => span.isRunning);
   const traceHasLiveUpdates = isLive || hasRunningSpans;
 

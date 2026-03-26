@@ -50,8 +50,22 @@ export function useDatoolNavigation() {
 // Link
 // ---------------------------------------------------------------------------
 
-function pathnameToViewId(pathname: string) {
+import { useOptionalDatoolContext } from "./providers/datool-context"
+import type { DatoolStateManager } from "./lib/state-manager"
+
+export function pathnameToViewId(pathname: string) {
   return `datool-${pathname === "/" ? "index" : pathname.replace(/[^a-z0-9/-]+/gi, "-")}`
+}
+
+/**
+ * Resolve the state keys for a given page. Useful for programmatic pre-fill.
+ */
+export function getDatoolStateKeys(page: string) {
+  const viewId = pathnameToViewId(page)
+  return {
+    search: `${viewId}-search`,
+    traceGroup: `traceviewer-${viewId}-group`,
+  }
 }
 
 export type DatoolLinkProps = Omit<
@@ -71,7 +85,10 @@ export type DatoolLinkProps = Omit<
 /**
  * Build a full URL string for a datool page with optional filter params.
  *
- * Useful when you need the raw href without rendering an anchor element.
+ * When a `stateManager` is provided, filter state (search, traceGroup)
+ * is written to the state manager on click instead of being embedded
+ * in the URL. Pass `null` to build a plain URL with all params inline
+ * (useful for external / copy-paste links).
  */
 export function buildDatoolHref({
   page,
@@ -87,23 +104,41 @@ export function buildDatoolHref({
     }
   }
 
-  const viewId = pathnameToViewId(page)
-
-  if (traceGroup) {
-    url.searchParams.set(`traceviewer-${viewId}-group`, traceGroup)
-  }
-
-  if (search) {
-    url.searchParams.set(`${viewId}-search`, search)
-  }
-
   const qs = url.searchParams.toString()
-
   return qs ? `${url.pathname}?${qs}` : url.pathname
 }
 
 /**
+ * Pre-fill datool state for a target page using the state manager.
+ *
+ * Call this before navigation (or in an onClick handler) so the target
+ * page picks up the values from the shared state manager.
+ */
+export function prefillDatoolState(
+  stateManager: DatoolStateManager,
+  { page, traceGroup, search }: Pick<DatoolLinkProps, "page" | "traceGroup" | "search">
+) {
+  const keys = getDatoolStateKeys(page)
+
+  if (search) {
+    stateManager.set(keys.search, search)
+  } else {
+    stateManager.delete(keys.search)
+  }
+
+  if (traceGroup) {
+    stateManager.set(keys.traceGroup, traceGroup)
+  } else {
+    stateManager.delete(keys.traceGroup)
+  }
+}
+
+/**
  * Typesafe link to a datool page with optional filter props.
+ *
+ * When used inside a `DatoolProvider`, filter state (search, traceGroup)
+ * is written to the state manager on click, ensuring consistency
+ * regardless of which state backend is in use.
  *
  * ```tsx
  * <DatoolLink page="/traces" traceGroup="workflow-abc">
@@ -117,11 +152,22 @@ export function buildDatoolHref({
  */
 export const DatoolLink = React.forwardRef<HTMLAnchorElement, DatoolLinkProps>(
   function DatoolLink(
-    { page, traceGroup, search, params, ...rest },
+    { page, traceGroup, search, params, onClick, ...rest },
     ref,
   ) {
-    const href = buildDatoolHref({ page, traceGroup, search, params })
+    const ctx = useOptionalDatoolContext()
+    const href = buildDatoolHref({ page, params })
 
-    return <a ref={ref} href={href} {...rest} />
+    const handleClick = React.useCallback(
+      (e: React.MouseEvent<HTMLAnchorElement>) => {
+        if (ctx?.stateManager && (search || traceGroup)) {
+          prefillDatoolState(ctx.stateManager, { page, traceGroup, search })
+        }
+        onClick?.(e)
+      },
+      [ctx?.stateManager, onClick, page, search, traceGroup]
+    )
+
+    return <a ref={ref} href={href} onClick={handleClick} {...rest} />
   },
 )

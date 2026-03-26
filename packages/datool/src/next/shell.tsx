@@ -4,12 +4,13 @@ import * as React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { ComponentType } from "react"
 
-import { DatoolAppConfigProvider } from "../client/app-config"
 import { AppSidebar } from "../client/components/app-sidebar"
 import { ThemeProvider } from "../client/components/theme-provider"
 import { TooltipProvider } from "../client/components/ui/tooltip"
 import { SidebarInset, SidebarProvider } from "../client/components/ui/sidebar"
 import { DatoolNavigationProvider } from "../client/navigation"
+import { DatoolProvider } from "../client/providers/datool-provider"
+import { createQueryParamsStateManager } from "../client/lib/state-manager"
 import type { DatoolClientConfig } from "../shared/types"
 
 export type DatoolManifestPage = {
@@ -30,6 +31,7 @@ export function DatoolNextApp({
   const router = useRouter()
   const searchParams = useSearchParams()
   const search = searchParams?.toString() ?? ""
+  const stateManager = React.useMemo(() => createQueryParamsStateManager(), [])
   const activePage = React.useMemo(
     () => manifestPages.find((page) => page.path === pathname) ?? null,
     [manifestPages, pathname]
@@ -47,7 +49,7 @@ export function DatoolNextApp({
     <ThemeProvider storageKey="datool-theme">
       <TooltipProvider>
         <DatoolNavigationProvider pathname={pathname} search={search}>
-          <DatoolAppConfigProvider config={config}>
+          <DatoolProvider config={config} state={stateManager}>
             <SidebarProvider>
               <AppSidebar pages={config.pages} />
               <SidebarInset className="min-h-svh overflow-hidden">
@@ -62,7 +64,7 @@ export function DatoolNextApp({
                 </div>
               </SidebarInset>
             </SidebarProvider>
-          </DatoolAppConfigProvider>
+          </DatoolProvider>
         </DatoolNavigationProvider>
       </TooltipProvider>
     </ThemeProvider>

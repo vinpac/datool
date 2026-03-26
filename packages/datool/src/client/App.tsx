@@ -6,10 +6,10 @@ import {
   Routes,
 } from "react-router-dom"
 
-import { DatoolAppConfigProvider } from "./app-config"
 import { AppSidebar } from "./components/app-sidebar"
 import { SidebarInset, SidebarProvider } from "./components/ui/sidebar"
 import { readJsonResponse } from "./lib/http"
+import { DatoolProvider } from "./providers/datool-provider"
 import type { DatoolClientConfig } from "../shared/types"
 import { manifestPages } from "@datool-manifest"
 
@@ -41,7 +41,7 @@ function DatoolRoutes() {
 function DatoolAppShell({ config }: { config: DatoolClientConfig }) {
   return (
     <BrowserRouter>
-      <DatoolAppConfigProvider config={config}>
+      <DatoolProvider config={config}>
         <SidebarProvider>
           <AppSidebar pages={config.pages} />
           <SidebarInset className="min-h-svh overflow-hidden">
@@ -50,7 +50,7 @@ function DatoolAppShell({ config }: { config: DatoolClientConfig }) {
             </div>
           </SidebarInset>
         </SidebarProvider>
-      </DatoolAppConfigProvider>
+      </DatoolProvider>
     </BrowserRouter>
   )
 }

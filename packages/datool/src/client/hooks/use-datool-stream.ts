@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useQuery } from "@tanstack/react-query"
 
 import { useDatoolAppConfig } from "../app-config"
 import { readJsonResponse } from "../lib/http"
@@ -32,111 +33,105 @@ function isRowsResponse<Row extends Record<string, unknown>>(
   return "rows" in payload
 }
 
-export function useDatoolSource<Row extends Record<string, unknown>>(source: string) {
+async function fetchSourceRows<Row extends Record<string, unknown>>(
+  activeSource: DatoolClientSource,
+  queryString: string,
+  signal: AbortSignal
+): Promise<Array<StreamViewerRow<Row>>> {
+  const url = new URL(
+    `/api/sources/${encodeURIComponent(activeSource.id)}/rows`,
+    window.location.origin
+  )
+  const currentParams = new URLSearchParams(queryString)
+
+  for (const [key, value] of currentParams.entries()) {
+    url.searchParams.set(key, value)
+  }
+
+  const response = await fetch(url, { signal })
+  const payload = (await readJsonResponse<DatoolRowsResponse<Row>>(
+    response
+  )) as
+    | DatoolRowsResponse<Row>
+    | { error?: string }
+    | null
+
+  if (!response.ok) {
+    throw new Error(
+      payload &&
+        typeof payload === "object" &&
+        "error" in payload &&
+        payload.error
+        ? payload.error
+        : `Request failed with status ${response.status}.`
+    )
+  }
+
+  if (!payload || !isRowsResponse(payload)) {
+    throw new Error("Invalid rows response.")
+  }
+
+  return payload.rows.map(
+    ({ id, row }: DatoolRowsResponse<Row>["rows"][number]) =>
+      ({
+        ...row,
+        __datoolRowId: id,
+      }) as StreamViewerRow<Row>
+  )
+}
+
+export function useDatoolSource<Row extends Record<string, unknown>>(
+  source: string,
+  initialRows?: Array<StreamViewerRow<Row>>
+) {
   const location = useDatoolNavigation()
   const { sourceById } = useDatoolAppConfig()
   const activeSource = (sourceById.get(source) as DatoolClientSource | undefined) ?? null
-  const [rows, setRows] = React.useState<Array<StreamViewerRow<Row>>>([])
+  const initialRowsRef = React.useRef(initialRows)
+  const [rows, setRows] = React.useState<Array<StreamViewerRow<Row>>>(
+    () => initialRows ?? []
+  )
   const [shouldConnect, setShouldConnect] = React.useState(
     () => activeSource?.supportsLive ?? activeSource?.supportsStream ?? true
   )
   const [isConnected, setIsConnected] = React.useState(false)
-  const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [sseErrorMessage, setSseErrorMessage] = React.useState<string | null>(null)
   const eventSourceRef = React.useRef<EventSource | null>(null)
   const queryString = location.search
 
+  // REST polling via react-query
+  const rowsQuery = useQuery({
+    queryKey: ["datool-rows", source, queryString],
+    queryFn: ({ signal }) =>
+      fetchSourceRows<Row>(activeSource!, queryString, signal),
+    enabled: !!activeSource?.supportsGet,
+    refetchInterval: activeSource?.pollIntervalMs || false,
+  })
+
+  // Sync REST data into local rows state
+  React.useEffect(() => {
+    if (rowsQuery.data) {
+      setRows(rowsQuery.data)
+    }
+  }, [rowsQuery.data])
+
+  // Reset on source/query change
   React.useEffect(() => {
     if (!activeSource) {
-      setRows([])
-      setErrorMessage(`Unknown source "${source}".`)
+      setRows(initialRowsRef.current ?? [])
+      setSseErrorMessage(`Unknown source "${source}".`)
       setIsConnected(false)
       return
     }
 
-    setErrorMessage(null)
-    setRows([])
+    setSseErrorMessage(null)
+
+    if (!activeSource.supportsGet) {
+      setRows(initialRowsRef.current ?? [])
+    }
   }, [activeSource, queryString, source])
 
-  React.useEffect(() => {
-    if (!activeSource?.supportsGet) {
-      return
-    }
-
-    const controller = new AbortController()
-
-    const fetchRows = () => {
-      const url = new URL(
-        `/api/sources/${encodeURIComponent(activeSource.id)}/rows`,
-        window.location.origin
-      )
-      const currentParams = new URLSearchParams(queryString)
-
-      for (const [key, value] of currentParams.entries()) {
-        url.searchParams.set(key, value)
-      }
-
-      void fetch(url, {
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          const payload = (await readJsonResponse<DatoolRowsResponse<Row>>(
-            response
-          )) as
-            | DatoolRowsResponse<Row>
-            | { error?: string }
-            | null
-
-          if (!response.ok) {
-            throw new Error(
-              payload &&
-                typeof payload === "object" &&
-                "error" in payload &&
-                payload.error
-                ? payload.error
-                : `Request failed with status ${response.status}.`
-            )
-          }
-
-          if (!payload || !isRowsResponse(payload)) {
-            throw new Error("Invalid rows response.")
-          }
-
-          setRows(
-            payload.rows.map(
-              ({ id, row }: DatoolRowsResponse<Row>["rows"][number]) =>
-                ({
-                  ...row,
-                  __datoolRowId: id,
-                }) as StreamViewerRow<Row>
-            )
-          )
-        })
-        .catch((error) => {
-          if (controller.signal.aborted) {
-            return
-          }
-
-          setErrorMessage(error instanceof Error ? error.message : String(error))
-        })
-    }
-
-    fetchRows()
-
-    const pollIntervalMs = activeSource.pollIntervalMs
-    let intervalId: ReturnType<typeof setInterval> | undefined
-
-    if (pollIntervalMs && pollIntervalMs > 0) {
-      intervalId = setInterval(fetchRows, pollIntervalMs)
-    }
-
-    return () => {
-      controller.abort()
-      if (intervalId !== undefined) {
-        clearInterval(intervalId)
-      }
-    }
-  }, [activeSource, queryString])
-
+  // SSE streaming
   React.useEffect(() => {
     if (
       !shouldConnect ||
@@ -176,7 +171,7 @@ export function useDatoolSource<Row extends Record<string, unknown>>(source: str
     const handleRuntimeError = (event: MessageEvent<string>) => {
       const payload = parseErrorEvent(event)
 
-      setErrorMessage(payload.message)
+      setSseErrorMessage(payload.message)
     }
 
     const handleEnd = (event: MessageEvent<string>) => {
@@ -217,6 +212,8 @@ export function useDatoolSource<Row extends Record<string, unknown>>(source: str
     setShouldConnect(activeSource?.supportsLive ?? activeSource?.supportsStream ?? false)
   }, [activeSource?.id, activeSource?.supportsLive, activeSource?.supportsStream])
 
+  const errorMessage = sseErrorMessage ?? (rowsQuery.error ? rowsQuery.error.message : null)
+
   return {
     activeSource,
     activeStream: activeSource,
@@ -227,7 +224,7 @@ export function useDatoolSource<Row extends Record<string, unknown>>(source: str
     isConnected,
     isConnecting: shouldConnect && !isConnected,
     rows,
-    setErrorMessage,
+    setErrorMessage: setSseErrorMessage,
     setRows,
     setShouldConnect,
     shouldConnect,

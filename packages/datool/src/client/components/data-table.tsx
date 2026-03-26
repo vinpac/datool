@@ -1698,6 +1698,7 @@ function DataTableView<TData extends DataTableRow>({
 
   const table = useReactTable({
     autoResetExpanded: false,
+    autoResetPageIndex: false,
     columnResizeMode: "onChange",
     columns: tableColumns,
     data,
@@ -1732,7 +1733,12 @@ function DataTableView<TData extends DataTableRow>({
     },
   })
 
-  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [containerEl, setContainerEl] = React.useState<HTMLDivElement | null>(null)
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const containerCallbackRef = React.useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node
+    setContainerEl(node)
+  }, [])
   const shouldAutoScrollRef = React.useRef(true)
   const hasAutoScrolledOnMountRef = React.useRef(false)
   const previousDataLengthRef = React.useRef(0)
@@ -1780,18 +1786,33 @@ function DataTableView<TData extends DataTableRow>({
     return { headerName, value }
   }, [activeContextMenuRow, activeContextMenuColumnId, table])
   const resolvedHeight = typeof height === "number" ? height : 0
+  const canComputeInitialOffset = autoScrollToBottom && resolvedHeight > 0
   const initialOffsetRef = React.useRef(
-    autoScrollToBottom
+    canComputeInitialOffset
       ? Math.max(rows.length * rowHeight - resolvedHeight, 0)
       : 0
   )
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
+    enabled: containerEl !== null,
     estimateSize: () => rowHeight,
-    getScrollElement: () => containerRef.current,
+    getScrollElement: () => containerEl,
     initialOffset: initialOffsetRef.current,
     overscan: 12,
   })
+
+  // When height is not a number (e.g. "100%"), we can't compute initialOffset
+  // at render time. Scroll to bottom after mount once the container is available.
+  React.useEffect(() => {
+    if (!autoScrollToBottom || canComputeInitialOffset || !containerEl) return
+    if (hasAutoScrolledOnMountRef.current) return
+    hasAutoScrolledOnMountRef.current = true
+    const totalSize = rows.length * rowHeight
+    const visibleHeight = containerEl.clientHeight
+    if (totalSize > visibleHeight) {
+      containerEl.scrollTop = totalSize - visibleHeight
+    }
+  }, [autoScrollToBottom, canComputeInitialOffset, containerEl, rows.length, rowHeight])
   const virtualRows = rowVirtualizer.getVirtualItems()
   const totalRows = data.length
   const filteredRows = rows.length
@@ -2391,7 +2412,7 @@ function DataTableView<TData extends DataTableRow>({
         isDragSelecting && "select-none"
       )}
       onContextMenuCapture={handleTableContextMenuCapture}
-      ref={containerRef}
+      ref={containerCallbackRef}
       style={{
         scrollbarGutter: "stable",
       }}
