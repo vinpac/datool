@@ -6,6 +6,7 @@ import type { VisibilityState } from "@tanstack/react-table"
 import type { DatoolClientSource } from "../../shared/types"
 import type { StreamViewerRow } from "../stream-state"
 import type { DataTableColumnKind } from "../components/data-table-col-icon"
+import type { DataTableSearchFieldSpec } from "../lib/data-table-search"
 
 // ---------------------------------------------------------------------------
 // Table state (registered by DatoolDataTable)
@@ -55,8 +56,10 @@ export type DatoolSourceContextValue<TData extends Record<string, unknown> = Rec
   errorMessage: string | null
   isConnected: boolean
   isConnecting: boolean
+  registerSearchFieldSpecs: (fields: DataTableSearchFieldSpec[]) => void
   rows: Array<StreamViewerRow<TData>>
   search: string
+  searchFieldSpecs: DataTableSearchFieldSpec[]
   setRows: React.Dispatch<React.SetStateAction<Array<StreamViewerRow<TData>>>>
   setSearch: (value: string) => void
   setShouldConnect: React.Dispatch<React.SetStateAction<boolean>>

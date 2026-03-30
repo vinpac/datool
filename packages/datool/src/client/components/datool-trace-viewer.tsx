@@ -17,6 +17,7 @@ import {
   buildTraceGroupsFromRows,
   resolveInitialTraceGroupId,
 } from "../lib/trace-groups"
+import { buildTraceSearchFieldSpecs } from "../lib/trace-search-fields"
 import type {
   DatoolTraceSchema,
   DatoolTraceGroupsConfig,
@@ -230,6 +231,7 @@ export function DatoolTraceViewer<
   const {
     isConnected,
     isConnecting,
+    registerSearchFieldSpecs,
     registerTrace,
     rows,
     search: sourceSearch,
@@ -329,6 +331,10 @@ export function DatoolTraceViewer<
     () => buildTraceFromRows(traceRows, schema),
     [traceRows, schema]
   )
+  const searchFieldSpecs = React.useMemo(
+    () => buildTraceSearchFieldSpecs(traceState.trace),
+    [traceState.trace]
+  )
 
   const rawRows = React.useMemo(
     () => traceRows.map((row) => stripViewerRowId(row)),
@@ -383,6 +389,11 @@ export function DatoolTraceViewer<
     registerTrace(traceContextValue)
     return () => registerTrace(null)
   }, [registerTrace, traceContextValue])
+
+  React.useEffect(() => {
+    registerSearchFieldSpecs(searchFieldSpecs)
+    return () => registerSearchFieldSpecs([])
+  }, [registerSearchFieldSpecs, searchFieldSpecs])
 
   const isLive = isConnected || isConnecting
 

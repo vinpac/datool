@@ -14,10 +14,11 @@ import {
   ClearButton,
   RefreshButton,
   ErrorMessage,
-  type DatoolColumn,
   type DatoolClientConfig,
+  SettingsButton,
 } from "datool"
 
+import { createQueryParamsStateManager } from "datool/page"
 // ---------------------------------------------------------------------------
 // Fake data
 // ---------------------------------------------------------------------------
@@ -31,6 +32,10 @@ type WorkflowRow = {
   triggeredBy: string
   branch: string
   commit: string
+}
+
+type ViewerRow = WorkflowRow & {
+  __datoolRowId: string
 }
 
 const WORKFLOWS = [
@@ -49,7 +54,7 @@ function randomItem<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!
 }
 
-function generateRows(count: number) {
+function generateRows(count: number): ViewerRow[] {
   const now = Date.now()
 
   return Array.from({ length: count }, (_, i) => {
@@ -93,7 +98,9 @@ const config: DatoolClientConfig = {
 // Columns
 // ---------------------------------------------------------------------------
 
-const columns: DatoolColumn<WorkflowRow>[] = [
+type ComposableColumns = React.ComponentProps<typeof DatoolDataTable>["columns"]
+
+const columns: ComposableColumns = [
   { accessorKey: "id", header: "Run ID", kind: "text", width: 120 },
   {
     accessorKey: "status",
@@ -129,10 +136,13 @@ const workflowRows = generateRows(200)
 export const title = "Composable API"
 
 export default function ComposableExamplePage() {
+const stateManager = React.useMemo(() => createQueryParamsStateManager(), [])
+
   return (
     <DatoolProvider
       config={config}
       defaultSource="workflows"
+      state={stateManager}
       sources={{ workflows: { rows: workflowRows } }}
     >
       <main className="flex h-full min-h-0 w-full min-w-0 flex-col gap-3 overflow-hidden bg-background pt-3">
@@ -140,11 +150,12 @@ export default function ComposableExamplePage() {
           <SearchFilter />
           <RefreshButton />
           <ClearButton />
+          <SettingsButton/>
         </header>
 
         <ErrorMessage />
 
-        <DatoolDataTable columns={columns as DatoolColumn[]} />
+        <DatoolDataTable columns={columns} />
       </main>
     </DatoolProvider>
   )

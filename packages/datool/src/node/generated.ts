@@ -168,7 +168,9 @@ export async function writeDatoolNextClientConfig(options: {
     recursive: true,
   })
 
-  const contents = `export const clientConfig = ${JSON.stringify(options.config, null, 2)}
+  const contents = `import type { DatoolClientConfig } from "datool/page"
+
+export const clientConfig: DatoolClientConfig = ${JSON.stringify(options.config, null, 2)}
 `
 
   await writeUtf8FileIfChanged(clientConfigPath, contents)
@@ -231,9 +233,6 @@ export async function writeDatoolNextApp(options: {
           module: "esnext",
           moduleResolution: "bundler",
           noEmit: true,
-          paths: {
-            datool: ["./datool-page.ts"],
-          },
           plugins: [
             {
               name: "next",
@@ -253,18 +252,8 @@ export async function writeDatoolNextApp(options: {
   )
 
   await writeUtf8FileIfChanged(
-    path.join(nextAppDirectory, "datool-page.ts"),
-    `export * from "datool/page"
-`
-  )
-
-  await writeUtf8FileIfChanged(
     path.join(nextAppDirectory, "next.config.mjs"),
-    `import { createRequire } from "node:module"
-
-const require = createRequire(import.meta.url)
-const datoolPageEntry = require.resolve("datool/page")
-const ignoreTypecheck = process.env.DATOOL_IGNORE_TYPECHECK === "1"
+    `const ignoreTypecheck = process.env.DATOOL_IGNORE_TYPECHECK === "1"
 
 const nextConfig = {
   eslint: {
@@ -277,14 +266,6 @@ const nextConfig = {
     externalDir: true,
   },
   transpilePackages: ["datool"],
-  webpack(config) {
-    config.resolve.alias = {
-      ...(config.resolve.alias ?? {}),
-      datool$: datoolPageEntry,
-    }
-
-    return config
-  },
 }
 
 export default nextConfig

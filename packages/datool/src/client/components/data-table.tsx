@@ -1,5 +1,21 @@
 /* eslint-disable react-hooks/incompatible-library, react-refresh/only-export-components */
 import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  arrayMove,
+  horizontalListSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable"
+import {
   getExpandedRowModel,
   getGroupedRowModel,
   functionalUpdate,
@@ -10,6 +26,7 @@ import {
   type AggregationFnOption,
   type ColumnDef,
   type ColumnFiltersState,
+  type ColumnOrderState,
   type ExpandedState,
   type FilterFn,
   type GroupingState,
@@ -252,6 +269,7 @@ type DataTableContextValue<TData extends DataTableRow> = {
 
 type PersistedTableState = {
   columnFilters?: ColumnFiltersState
+  columnOrder?: string[]
   columnSizing?: ColumnSizingState
   highlightedColumns?: Record<string, boolean>
   columnVisibility?: VisibilityState
@@ -463,6 +481,7 @@ function isPersistedStateEmpty(state: PersistedTableState) {
     (state.sorting?.length ?? 0) === 0 &&
     (state.grouping?.length ?? 0) === 0 &&
     (state.columnFilters?.length ?? 0) === 0 &&
+    (state.columnOrder?.length ?? 0) === 0 &&
     Object.keys(state.highlightedColumns ?? {}).length === 0 &&
     Object.keys(state.columnVisibility ?? {}).length === 0 &&
     Object.keys(state.columnSizing ?? {}).length === 0 &&
@@ -672,6 +691,37 @@ function resolveColumnId<TData extends DataTableRow>(
       ? column.header.toLowerCase().replace(/\s+/g, "-")
       : `column-${index}`)
   )
+}
+
+function isColumnStickyLeft(meta: DataTableColumnMeta | undefined) {
+  return meta?.sticky === "left"
+}
+
+function isColumnTrailing(id: string) {
+  return id === "__actions"
+}
+
+function isColumnReorderable(
+  id: string,
+  meta: DataTableColumnMeta | undefined
+) {
+  return !isColumnStickyLeft(meta) && !isColumnTrailing(id)
+}
+
+function resolveColumnOrder(
+  preferredOrder: string[],
+  availableIds: string[]
+) {
+  const availableIdSet = new Set(availableIds)
+  const nextOrder = preferredOrder.filter((id) => availableIdSet.has(id))
+
+  for (const id of availableIds) {
+    if (!nextOrder.includes(id)) {
+      nextOrder.push(id)
+    }
+  }
+
+  return nextOrder
 }
 
 function buildColumns<TData extends DataTableRow>(
@@ -1500,6 +1550,7 @@ function DataTableView<TData extends DataTableRow>({
 }: DataTableProps<TData>) {
   const context = useOptionalDataTableContext<TData>()
   const [sorting, setSorting] = React.useState<SortingState>(defaultSorting ?? [])
+  const [columnOrder, setColumnOrder] = React.useState<string[]>([])
   const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({})
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({})
@@ -1612,6 +1663,76 @@ function DataTableView<TData extends DataTableRow>({
       showRowSelectionColumn,
     ]
   )
+  const columnOrderBuckets = React.useMemo(() => {
+    const leading: string[] = []
+    const movable: string[] = []
+    const trailing: string[] = []
+
+    for (const column of tableColumns) {
+      const id =
+        typeof column.id === "string"
+          ? column.id
+          : "accessorKey" in column && typeof column.accessorKey === "string"
+            ? column.accessorKey
+            : null
+
+      if (!id) {
+        continue
+      }
+
+      const meta = (column.meta ?? {}) as DataTableColumnMeta
+
+      if (isColumnStickyLeft(meta)) {
+        leading.push(id)
+        continue
+      }
+
+      if (isColumnTrailing(id)) {
+        trailing.push(id)
+        continue
+      }
+
+      movable.push(id)
+    }
+
+    return {
+      leading,
+      movable,
+      trailing,
+    }
+  }, [tableColumns])
+  const resolvedMovableColumnOrder = React.useMemo(
+    () => resolveColumnOrder(columnOrder, columnOrderBuckets.movable),
+    [columnOrder, columnOrderBuckets.movable]
+  )
+  const resolvedColumnOrder = React.useMemo(
+    () => [
+      ...columnOrderBuckets.leading,
+      ...resolvedMovableColumnOrder,
+      ...columnOrderBuckets.trailing,
+    ],
+    [
+      columnOrderBuckets.leading,
+      columnOrderBuckets.trailing,
+      resolvedMovableColumnOrder,
+    ]
+  )
+  const reorderSensors = useSensors(
+    useSensor(MouseSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 150,
+        tolerance: 6,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
   const setRowActionStatus = React.useCallback(
     (key: string, status: RowActionStatus, resetAfterMs?: number) => {
       const existingTimer = rowActionStatusTimersRef.current[key]
@@ -1654,6 +1775,20 @@ function DataTableView<TData extends DataTableRow>({
 
     onColumnSizingChange?.(nextValue)
   }, [isColumnSizingControlled, onColumnSizingChange, resolvedColumnSizing])
+  const handleColumnOrderChange = React.useCallback<
+    OnChangeFn<ColumnOrderState>
+  >(
+    (updater) => {
+      const nextValue = functionalUpdate(updater, resolvedColumnOrder)
+      const nextMovableOrder = resolveColumnOrder(
+        nextValue.filter((id) => columnOrderBuckets.movable.includes(id)),
+        columnOrderBuckets.movable
+      )
+
+      setColumnOrder(nextMovableOrder)
+    },
+    [columnOrderBuckets.movable, resolvedColumnOrder]
+  )
   const handleColumnFiltersChange = React.useCallback<
     OnChangeFn<ColumnFiltersState>
   >(
@@ -1718,6 +1853,7 @@ function DataTableView<TData extends DataTableRow>({
     groupedColumnMode: false,
     globalFilterFn: globalFilterFn as FilterFn<TData>,
     onColumnFiltersChange: handleColumnFiltersChange,
+    onColumnOrderChange: handleColumnOrderChange,
     onColumnSizingChange: handleColumnSizingChange,
     onColumnVisibilityChange: handleColumnVisibilityChange,
     onExpandedChange: setExpanded,
@@ -1726,6 +1862,7 @@ function DataTableView<TData extends DataTableRow>({
     onSortingChange: setSorting,
     state: {
       columnFilters: resolvedColumnFilters,
+      columnOrder: resolvedColumnOrder,
       columnSizing: resolvedColumnSizing,
       columnVisibility: resolvedColumnVisibility,
       expanded,
@@ -1839,6 +1976,7 @@ function DataTableView<TData extends DataTableRow>({
     const nextState = readPersistedState(id, statePersistence)
 
     setSorting(nextState.sorting ?? defaultSorting ?? [])
+    setColumnOrder(nextState.columnOrder ?? [])
     if (!isColumnSizingControlled) {
       setColumnSizing(nextState.columnSizing ?? {})
     }
@@ -1892,6 +2030,7 @@ function DataTableView<TData extends DataTableRow>({
       const nextState = readPersistedState(id, "url")
 
       setSorting(nextState.sorting ?? defaultSorting ?? [])
+      setColumnOrder(nextState.columnOrder ?? [])
       if (!isColumnSizingControlled) {
         setColumnSizing(nextState.columnSizing ?? {})
       }
@@ -1939,6 +2078,7 @@ function DataTableView<TData extends DataTableRow>({
   React.useEffect(() => {
     writePersistedState(id, statePersistence, {
       columnFilters: resolvedColumnFilters,
+      columnOrder: resolvedMovableColumnOrder,
       columnSizing: resolvedColumnSizing,
       highlightedColumns,
       columnVisibility: resolvedColumnVisibility,
@@ -1950,6 +2090,7 @@ function DataTableView<TData extends DataTableRow>({
     deferredSearch,
     highlightedColumns,
     id,
+    resolvedMovableColumnOrder,
     resolvedColumnFilters,
     resolvedColumnSizing,
     resolvedColumnVisibility,
@@ -2106,6 +2247,34 @@ function DataTableView<TData extends DataTableRow>({
     resolveColumnHighlightTerms,
     table,
   ])
+  const handleColumnDragEnd = React.useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+
+      if (!over || active.id === over.id) {
+        return
+      }
+
+      const activeId = String(active.id)
+      const overId = String(over.id)
+      const activeIndex = resolvedMovableColumnOrder.indexOf(activeId)
+      const overIndex = resolvedMovableColumnOrder.indexOf(overId)
+
+      if (activeIndex === -1 || overIndex === -1) {
+        return
+      }
+
+      handleColumnOrderChange(
+        arrayMove(resolvedColumnOrder, activeIndex + columnOrderBuckets.leading.length, overIndex + columnOrderBuckets.leading.length)
+      )
+    },
+    [
+      columnOrderBuckets.leading.length,
+      handleColumnOrderChange,
+      resolvedColumnOrder,
+      resolvedMovableColumnOrder,
+    ]
+  )
   const selectRange = React.useCallback(
     (
       anchorId: string,
@@ -2420,145 +2589,172 @@ function DataTableView<TData extends DataTableRow>({
         scrollbarGutter: "stable",
       }}
     >
-      <table
-        className="grid w-full border-separate border-spacing-0"
-        role="grid"
+      <DndContext
+        collisionDetection={closestCenter}
+        onDragEnd={handleColumnDragEnd}
+        sensors={reorderSensors}
       >
-        <thead className="sticky top-0 z-20 grid">
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr
-              className="flex w-full"
-              key={headerGroup.id}
-              style={{
-                width: table.getTotalSize(),
-              }}
-            >
-              {headerGroup.headers.map((header, index) => (
-                <DataTableHeaderCol
-                  header={header}
-                  highlightEnabled={isColumnHighlightEnabled(
-                    header.column.id,
-                    (header.column.columnDef.meta ?? {}) as DataTableColumnMeta
-                  )}
-                  key={header.id}
-                  onToggleHighlight={() =>
-                    setHighlightedColumns((current) => ({
-                      ...current,
-                      [header.column.id]: !isColumnHighlightEnabled(
-                        header.column.id,
-                        (header.column.columnDef.meta ??
-                          {}) as DataTableColumnMeta
-                      ),
-                    }))
-                  }
-                  paddingLeft={index === 0 ? edgeHorizontalPadding : undefined}
-                  paddingRight={
-                    index === headerGroup.headers.length - 1
-                      ? edgeHorizontalPadding
-                      : undefined
-                  }
-                  scrollContainerRef={containerRef}
-                />
-              ))}
-            </tr>
-          ))}
-        </thead>
-
-        <tbody
-          className="relative grid"
-          style={{
-            height: rowVirtualizer.getTotalSize(),
-          }}
+        <table
+          className="grid w-full border-separate border-spacing-0"
+          role="grid"
         >
-          {virtualRows.length === 0 ? (
-            <tr className="absolute inset-x-0 top-0 flex h-full items-center justify-center">
-              <td className="px-4 py-10 text-center text-sm text-muted-foreground">
-                No rows match the current filters.
-              </td>
-            </tr>
-          ) : (
-            virtualRows.map((virtualRow) => {
-              const row = rows[virtualRow.index]
-              const isGroupRow = row.getIsGrouped()
-              const visibleRowActions = isGroupRow
-                ? []
-                : resolveVisibleRowActions(rowActions ?? [], row, selectedTableRows)
-              const groupVisibleCells = row.getVisibleCells()
-              const isSelected = row.getIsSelected()
-              const groupingColumn = row.groupingColumnId
-                ? table.getColumn(row.groupingColumnId)
-                : undefined
-              const groupingMeta = groupingColumn?.columnDef.meta as
-                | DataTableColumnMeta
-                | undefined
-              const groupingValue = groupingColumn
-                ? fallbackCellValue(row.groupingValue, groupingMeta?.kind, {
-                    dateFormat: groupingMeta?.dateFormat ?? dateFormat,
-                    enumColors: groupingMeta?.enumColors,
-                    enumOptions: groupingMeta?.enumOptions,
-                    enumVariant: groupingMeta?.enumVariant,
-                  })
-                : null
-              const hasVisibleGroupedCell = groupVisibleCells.some((cell) =>
-                cell.getIsGrouped()
-              )
-              const primaryGroupCellId = groupVisibleCells.find(
-                (cell) =>
-                  cell.column.id !== "__select" && cell.column.id !== "__actions"
-              )?.id
-
-              return (
+          <thead className="sticky top-0 z-20 grid">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <SortableContext
+                items={headerGroup.headers
+                  .filter((header) =>
+                    isColumnReorderable(
+                      header.column.id,
+                      (header.column.columnDef.meta ?? {}) as DataTableColumnMeta
+                    )
+                  )
+                  .map((header) => header.column.id)}
+                key={headerGroup.id}
+                strategy={horizontalListSortingStrategy}
+              >
                 <tr
-                  aria-selected={isSelected}
-                  className={cn(
-                    "absolute left-0 flex w-full transition-colors",
-                    isGroupRow ? "bg-transparent" : "bg-card",
-                    canSelectRows && row.getCanSelect() && "cursor-pointer",
-                    !isGroupRow && rowClassName?.(row.original),
-                    !isGroupRow &&
-                      isSelected &&
-                      "bg-primary/10 before:absolute before:-top-px before:left-0 before:h-px before:w-full before:bg-primary before:content-[''] after:absolute after:bottom-0 after:left-0 after:h-px after:w-full after:bg-primary after:content-['']"
-                  )}
-                  data-index={virtualRow.index}
-                  data-row-id={row.id}
-                  data-state={!isGroupRow && isSelected ? "selected" : undefined}
-                  key={row.id}
-                  onContextMenu={
-                    isGroupRow ? undefined : () => handleRowContextMenu(row)
-                  }
-                  onMouseDown={
-                    isGroupRow
-                      ? undefined
-                      : (event) => handleRowMouseDown(event, row)
-                  }
-                  onMouseEnter={
-                    isGroupRow
-                      ? undefined
-                      : (event) => handleRowMouseEnter(event, row)
-                  }
-                  ref={(node) => {
-                    if (node) {
-                      rowVirtualizer.measureElement(node)
-                    }
-                  }}
+                  className="flex w-full"
                   style={{
-                    ...(!isGroupRow ? rowStyle?.(row.original) : undefined),
-                    minHeight: isGroupRow ? Math.max(rowHeight, 44) : rowHeight,
-                    transform: `translateY(${virtualRow.start}px)`,
                     width: table.getTotalSize(),
                   }}
                 >
-                  {isGroupRow ? (
-                    groupVisibleCells.map((cell, index, visibleCells) => {
-                      const meta = (cell.column.columnDef.meta ??
-                        {}) as DataTableColumnMeta
-                      const isActionsCell = cell.column.id === "__actions"
-                      const isSelectionCell = meta.kind === "selection"
-                      const shouldRenderGroupLabel =
-                        cell.getIsGrouped() ||
-                        (!hasVisibleGroupedCell && cell.id === primaryGroupCellId)
-                      const value = cell.getValue()
-                      let content: React.ReactNode = null
+                  {headerGroup.headers.map((header, index) => (
+                    <DataTableHeaderCol
+                      header={header}
+                      highlightEnabled={isColumnHighlightEnabled(
+                        header.column.id,
+                        (header.column.columnDef.meta ?? {}) as DataTableColumnMeta
+                      )}
+                      key={header.id}
+                      onToggleHighlight={() =>
+                        setHighlightedColumns((current) => ({
+                          ...current,
+                          [header.column.id]: !isColumnHighlightEnabled(
+                            header.column.id,
+                            (header.column.columnDef.meta ??
+                              {}) as DataTableColumnMeta
+                          ),
+                        }))
+                      }
+                      paddingLeft={index === 0 ? edgeHorizontalPadding : undefined}
+                      paddingRight={
+                        index === headerGroup.headers.length - 1
+                          ? edgeHorizontalPadding
+                          : undefined
+                      }
+                      reorderable={isColumnReorderable(
+                        header.column.id,
+                        (header.column.columnDef.meta ?? {}) as DataTableColumnMeta
+                      )}
+                      scrollContainerRef={containerRef}
+                    />
+                  ))}
+                </tr>
+              </SortableContext>
+            ))}
+          </thead>
+
+          <tbody
+            className="relative grid"
+            style={{
+              height: rowVirtualizer.getTotalSize(),
+            }}
+          >
+            {virtualRows.length === 0 ? (
+              <tr className="absolute inset-x-0 top-0 flex h-full items-center justify-center">
+                <td className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  No rows match the current filters.
+                </td>
+              </tr>
+            ) : (
+              virtualRows.map((virtualRow) => {
+                const row = rows[virtualRow.index]
+                const isGroupRow = row.getIsGrouped()
+                const visibleRowActions = isGroupRow
+                  ? []
+                  : resolveVisibleRowActions(
+                      rowActions ?? [],
+                      row,
+                      selectedTableRows
+                    )
+                const groupVisibleCells = row.getVisibleCells()
+                const isSelected = row.getIsSelected()
+                const groupingColumn = row.groupingColumnId
+                  ? table.getColumn(row.groupingColumnId)
+                  : undefined
+                const groupingMeta = groupingColumn?.columnDef.meta as
+                  | DataTableColumnMeta
+                  | undefined
+                const groupingValue = groupingColumn
+                  ? fallbackCellValue(row.groupingValue, groupingMeta?.kind, {
+                      dateFormat: groupingMeta?.dateFormat ?? dateFormat,
+                      enumColors: groupingMeta?.enumColors,
+                      enumOptions: groupingMeta?.enumOptions,
+                      enumVariant: groupingMeta?.enumVariant,
+                    })
+                  : null
+                const hasVisibleGroupedCell = groupVisibleCells.some((cell) =>
+                  cell.getIsGrouped()
+                )
+                const primaryGroupCellId = groupVisibleCells.find(
+                  (cell) =>
+                    cell.column.id !== "__select" &&
+                    cell.column.id !== "__actions"
+                )?.id
+
+                return (
+                  <tr
+                    aria-selected={isSelected}
+                    className={cn(
+                      "absolute left-0 flex w-full transition-colors",
+                      isGroupRow ? "bg-transparent" : "bg-card",
+                      // canSelectRows && row.getCanSelect() && "cursor-pointer",
+                      !isGroupRow && rowClassName?.(row.original),
+                      !isGroupRow &&
+                        isSelected &&
+                        "bg-primary/10 before:absolute before:-top-px before:left-0 before:h-px before:w-full before:bg-primary before:content-[''] after:absolute after:bottom-0 after:left-0 after:h-px after:w-full after:bg-primary after:content-['']"
+                    )}
+                    data-index={virtualRow.index}
+                    data-row-id={row.id}
+                    data-state={!isGroupRow && isSelected ? "selected" : undefined}
+                    key={row.id}
+                    onContextMenu={
+                      isGroupRow ? undefined : () => handleRowContextMenu(row)
+                    }
+                    onMouseDown={
+                      isGroupRow
+                        ? undefined
+                        : (event) => handleRowMouseDown(event, row)
+                    }
+                    onMouseEnter={
+                      isGroupRow
+                        ? undefined
+                        : (event) => handleRowMouseEnter(event, row)
+                    }
+                    ref={(node) => {
+                      if (node) {
+                        rowVirtualizer.measureElement(node)
+                      }
+                    }}
+                    style={{
+                      ...(!isGroupRow ? rowStyle?.(row.original) : undefined),
+                      minHeight: isGroupRow ? Math.max(rowHeight, 44) : rowHeight,
+                      transform: `translateY(${virtualRow.start}px)`,
+                      width: table.getTotalSize(),
+                    }}
+                  >
+                    {isGroupRow ? (
+                      groupVisibleCells.map((cell, index, visibleCells) => {
+                        const meta = (cell.column.columnDef.meta ??
+                          {}) as DataTableColumnMeta
+                        const isActionsCell = cell.column.id === "__actions"
+                        const isSelectionCell = meta.kind === "selection"
+                        const shouldRenderGroupLabel =
+                          cell.getIsGrouped() ||
+                          (!hasVisibleGroupedCell &&
+                            cell.id === primaryGroupCellId)
+                        const value = cell.getValue()
+                        let content: React.ReactNode = null
 
                       if (!isActionsCell && !isSelectionCell) {
                         if (shouldRenderGroupLabel) {
@@ -2708,6 +2904,7 @@ function DataTableView<TData extends DataTableRow>({
           )}
         </tbody>
       </table>
+      </DndContext>
     </div>
   )
 

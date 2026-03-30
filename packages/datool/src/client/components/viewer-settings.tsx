@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu"
 import { cn } from "../lib/utils"
+import { useOptionalDatoolSourceContext } from "../providers/datool-source-context"
 
 type ViewerSettingsColumn = {
   id: string
@@ -44,7 +45,7 @@ type ViewerSettingsExportAction = {
   onSelect: () => void
 }
 
-type ViewerSettingsProps = {
+type ViewerSettingsMenuProps = {
   columns?: ViewerSettingsColumn[]
   groupedColumnIds?: string[]
   isDisabled?: boolean
@@ -52,6 +53,10 @@ type ViewerSettingsProps = {
   onClearGrouping?: () => void
   onToggleGrouping?: (columnId: string, grouped: boolean) => void
   onToggleColumn?: (columnId: string, visible: boolean) => void
+  className?: string
+}
+
+export type SettingsButtonProps = {
   className?: string
 }
 
@@ -77,7 +82,7 @@ const THEME_OPTIONS: Array<{
   },
 ]
 
-export function ViewerSettings({
+function ViewerSettingsMenu({
   columns = [],
   groupedColumnIds = [],
   isDisabled = false,
@@ -86,7 +91,7 @@ export function ViewerSettings({
   onToggleGrouping,
   onToggleColumn,
   className,
-}: ViewerSettingsProps) {
+}: ViewerSettingsMenuProps) {
   const { theme, setTheme } = useTheme()
   const canManageColumns = columns.length > 0 && typeof onToggleColumn === "function"
   const canManageGrouping =
@@ -262,3 +267,89 @@ export function ViewerSettings({
     </DropdownMenu>
   )
 }
+
+export function SettingsButton({ className }: SettingsButtonProps) {
+  const sourceContext = useOptionalDatoolSourceContext()
+  const table = sourceContext?.table ?? null
+  const trace = sourceContext?.trace ?? null
+  const rows = sourceContext?.rows ?? []
+  const activeSource = sourceContext?.sourceConfig ?? null
+
+  const exportActions = React.useMemo<ViewerSettingsExportAction[]>(() => {
+    if (table) {
+      return [
+        {
+          id: "csv",
+          label: "Export CSV",
+          onSelect: () => table.handleExport("csv"),
+        },
+        {
+          id: "markdown",
+          label: "Export Markdown",
+          onSelect: () => table.handleExport("md"),
+        },
+      ]
+    }
+
+    if (trace) {
+      return [
+        {
+          id: "raw-data",
+          label: "Export Raw Data",
+          disabled: trace.rawRowCount === 0,
+          onSelect: trace.handleExportRawData,
+        },
+        {
+          id: "trace-data",
+          label: "Export Trace Data",
+          disabled: !trace.hasTrace,
+          onSelect: trace.handleExportTraceData,
+        },
+      ]
+    }
+
+    return []
+  }, [table, trace])
+
+  return (
+    <ViewerSettingsMenu
+      className={className}
+      columns={table?.settingsColumns}
+      exportActions={exportActions}
+      groupedColumnIds={table?.groupedColumnIds}
+      isDisabled={
+        table
+          ? !activeSource
+          : trace
+            ? rows.length === 0 && !trace.hasTrace
+            : false
+      }
+      onClearGrouping={
+        table ? () => table.setGroupedColumnIds([]) : undefined
+      }
+      onToggleColumn={
+        table
+          ? (columnId, visible) =>
+              table.setColumnVisibility((current) => ({
+                ...current,
+                [columnId]: visible,
+              }))
+          : undefined
+      }
+      onToggleGrouping={
+        table
+          ? (columnId, grouped) =>
+              table.setGroupedColumnIds((current) =>
+                grouped
+                  ? current.includes(columnId)
+                    ? current
+                    : [...current, columnId]
+                  : current.filter((id) => id !== columnId)
+              )
+          : undefined
+      }
+    />
+  )
+}
+
+export const ViewerSettings = SettingsButton

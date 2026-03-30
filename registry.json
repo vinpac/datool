@@ -1,0 +1,337 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "datool",
+  "homepage": "https://your-registry.vercel.app",
+  "items": [
+    {
+      "name": "data-table",
+      "type": "registry:component",
+      "title": "Data Table",
+      "description": "A virtualized, searchable, groupable data table with row actions and persisted state.",
+      "categories": ["data-display", "table"],
+      "dependencies": [
+        "@dnd-kit/core",
+        "@dnd-kit/sortable",
+        "@dnd-kit/utilities",
+        "@tanstack/react-table",
+        "@tanstack/react-virtual",
+        "class-variance-authority",
+        "clsx",
+        "date-fns",
+        "lucide-react",
+        "radix-ui",
+        "tailwind-merge"
+      ],
+      "files": [
+        {
+          "path": "registry/new-york/data-table/components/data-table/index.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/data-table-cell.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/data-table-col-icon.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/data-table-header-col.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/enum-badge.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/lib/data-table-search.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/lib/filterable-table.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/lib/table-search-persistence.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/lib/utils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/shared/date-format.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/shared/types.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/ui/button.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/ui/context-menu.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/data-table/components/data-table/ui/tooltip.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "trace-viewer",
+      "type": "registry:component",
+      "title": "Trace Viewer",
+      "description": "An interactive timeline viewer for trace spans, markers, search, zooming, and detail inspection.",
+      "categories": ["visualization", "observability"],
+      "dependencies": ["clsx", "tailwind-merge"],
+      "cssVars": {
+        "light": {
+          "font-mono": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace",
+          "font-sans": "ui-sans-serif, system-ui, sans-serif",
+          "border-color": "var(--border)",
+          "accents-2": "rgba(24, 24, 27, 0.06)",
+          "accents-5": "rgba(24, 24, 27, 0.14)",
+          "accents-7": "rgba(24, 24, 27, 0.36)",
+          "ds-shadow-small": "0 10px 30px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.05)",
+          "ds-background-100": "#ffffff",
+          "ds-background-200": "#f8fafc",
+          "ds-gray-100": "#fafafa",
+          "ds-gray-200": "#f4f4f5",
+          "ds-gray-300": "#e4e4e7",
+          "ds-gray-400": "#d4d4d8",
+          "ds-gray-500": "#a1a1aa",
+          "ds-gray-600": "#71717a",
+          "ds-gray-700": "#52525b",
+          "ds-gray-800": "#3f3f46",
+          "ds-gray-900": "#27272a",
+          "ds-gray-1000": "#09090b",
+          "ds-gray-alpha-100": "rgba(9, 9, 11, 0.04)",
+          "ds-gray-alpha-200": "rgba(9, 9, 11, 0.08)",
+          "ds-gray-alpha-400": "rgba(9, 9, 11, 0.16)",
+          "ds-gray-alpha-500": "rgba(9, 9, 11, 0.24)",
+          "ds-gray-alpha-700": "rgba(9, 9, 11, 0.44)",
+          "ds-teal-200": "#ccfbf1",
+          "ds-teal-400": "#2dd4bf",
+          "ds-teal-500": "#14b8a6",
+          "ds-teal-900": "#134e4a",
+          "ds-blue-100": "#dbeafe",
+          "ds-blue-200": "#bfdbfe",
+          "ds-blue-400": "#60a5fa",
+          "ds-blue-500": "#3b82f6",
+          "ds-blue-600": "#2563eb",
+          "ds-blue-700": "#1d4ed8",
+          "ds-blue-900": "#1e3a8a",
+          "ds-green-200": "#bbf7d0",
+          "ds-green-400": "#4ade80",
+          "ds-green-500": "#22c55e",
+          "ds-green-900": "#14532d",
+          "ds-purple-100": "#f3e8ff",
+          "ds-purple-200": "#e9d5ff",
+          "ds-purple-400": "#c084fc",
+          "ds-purple-500": "#a855f7",
+          "ds-purple-600": "#9333ea",
+          "ds-purple-700": "#7e22ce",
+          "ds-purple-900": "#581c87",
+          "ds-pink-200": "#fbcfe8",
+          "ds-pink-400": "#f472b6",
+          "ds-pink-500": "#ec4899",
+          "ds-pink-900": "#831843",
+          "ds-amber-100": "#fef3c7",
+          "ds-amber-200": "#fde68a",
+          "ds-amber-400": "#fbbf24",
+          "ds-amber-500": "#f59e0b",
+          "ds-amber-600": "#d97706",
+          "ds-amber-700": "#b45309",
+          "ds-amber-900": "#78350f",
+          "ds-red-100": "#fee2e2",
+          "ds-red-200": "#fecaca",
+          "ds-red-400": "#f87171",
+          "ds-red-500": "#ef4444",
+          "ds-red-600": "#dc2626",
+          "ds-red-700": "#b91c1c",
+          "ds-red-900": "#7f1d1d"
+        },
+        "dark": {
+          "font-mono": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace",
+          "font-sans": "ui-sans-serif, system-ui, sans-serif",
+          "border-color": "var(--border)",
+          "accents-2": "rgba(244, 244, 245, 0.08)",
+          "accents-5": "rgba(244, 244, 245, 0.16)",
+          "accents-7": "rgba(244, 244, 245, 0.38)",
+          "ds-shadow-small": "0 14px 40px rgba(0, 0, 0, 0.38), 0 2px 10px rgba(0, 0, 0, 0.3)",
+          "ds-background-100": "#09090b",
+          "ds-background-200": "#111827",
+          "ds-gray-100": "#18181b",
+          "ds-gray-200": "#27272a",
+          "ds-gray-300": "#3f3f46",
+          "ds-gray-400": "#52525b",
+          "ds-gray-500": "#71717a",
+          "ds-gray-600": "#a1a1aa",
+          "ds-gray-700": "#d4d4d8",
+          "ds-gray-800": "#e4e4e7",
+          "ds-gray-900": "#f4f4f5",
+          "ds-gray-1000": "#fafafa",
+          "ds-gray-alpha-100": "rgba(250, 250, 250, 0.04)",
+          "ds-gray-alpha-200": "rgba(250, 250, 250, 0.08)",
+          "ds-gray-alpha-400": "rgba(250, 250, 250, 0.16)",
+          "ds-gray-alpha-500": "rgba(250, 250, 250, 0.24)",
+          "ds-gray-alpha-700": "rgba(250, 250, 250, 0.44)",
+          "ds-teal-200": "#083344",
+          "ds-teal-400": "#0f766e",
+          "ds-teal-500": "#14b8a6",
+          "ds-teal-900": "#99f6e4",
+          "ds-blue-100": "#172554",
+          "ds-blue-200": "#1e3a8a",
+          "ds-blue-400": "#2563eb",
+          "ds-blue-500": "#3b82f6",
+          "ds-blue-600": "#60a5fa",
+          "ds-blue-700": "#93c5fd",
+          "ds-blue-900": "#dbeafe",
+          "ds-green-200": "#14532d",
+          "ds-green-400": "#15803d",
+          "ds-green-500": "#22c55e",
+          "ds-green-900": "#bbf7d0",
+          "ds-purple-100": "#3b0764",
+          "ds-purple-200": "#581c87",
+          "ds-purple-400": "#7e22ce",
+          "ds-purple-500": "#a855f7",
+          "ds-purple-600": "#c084fc",
+          "ds-purple-700": "#d8b4fe",
+          "ds-purple-900": "#f3e8ff",
+          "ds-pink-200": "#831843",
+          "ds-pink-400": "#be185d",
+          "ds-pink-500": "#ec4899",
+          "ds-pink-900": "#fbcfe8",
+          "ds-amber-100": "#451a03",
+          "ds-amber-200": "#78350f",
+          "ds-amber-400": "#d97706",
+          "ds-amber-500": "#f59e0b",
+          "ds-amber-600": "#fbbf24",
+          "ds-amber-700": "#fcd34d",
+          "ds-amber-900": "#fef3c7",
+          "ds-red-100": "#450a0a",
+          "ds-red-200": "#7f1d1d",
+          "ds-red-400": "#dc2626",
+          "ds-red-500": "#ef4444",
+          "ds-red-600": "#f87171",
+          "ds-red-700": "#fca5a5",
+          "ds-red-900": "#fee2e2"
+        }
+      },
+      "files": [
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/index.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/context.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/lib/utils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/modules.d.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/trace-viewer.module.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/trace-viewer.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/types.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/worker.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/map.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/markers.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/node.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/search-input.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/search.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/span-content.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/span-detail-panel.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/span-segments.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/span-strategies.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/ui.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/zoom-button.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/zoom-icons.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/constants.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/scrollbar-width.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/timing.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/tree.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/use-immediate-style.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/use-streaming-spans.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/use-trackpad-zoom.tsx",
+          "type": "registry:component"
+        }
+      ]
+    }
+  ]
+}

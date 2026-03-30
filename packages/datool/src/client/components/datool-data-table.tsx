@@ -34,11 +34,13 @@ import { LOG_VIEWER_ICONS } from "../lib/datool-icons"
 import {
   quoteSearchTokenValue,
   splitSearchQuery,
+  type DataTableSearchFieldSpec,
 } from "../lib/data-table-search"
 import { useDatoolState } from "../hooks/use-datool-state"
 import { useOptionalDatoolContext } from "../providers/datool-context"
 import { downloadTextFile, sanitizeFilePart } from "../lib/file-download"
 import type { DatoolColumn, DatoolSortingState } from "../table-types"
+import { buildTableSearchFields } from "../lib/filterable-table"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -377,6 +379,7 @@ export function DatoolDataTable({
   const { config } = useDatoolAppConfig()
   const sourceCtx = useDatoolSourceContext<ViewerRow>()
   const {
+    registerSearchFieldSpecs,
     registerTable,
     rows,
     search: sourceSearch,
@@ -405,6 +408,13 @@ export function DatoolDataTable({
   }
 
   const columns = React.useMemo(() => buildTableColumns(declaredColumns), [declaredColumns])
+  const searchFieldSpecs = React.useMemo<DataTableSearchFieldSpec[]>(
+    () =>
+      buildTableSearchFields(columns, rows.slice(0, 200)).map(
+        ({ getValue: _getValue, ...field }) => field
+      ),
+    [columns, rows]
+  )
 
   const exportColumns = React.useMemo(
     () =>
@@ -467,6 +477,7 @@ export function DatoolDataTable({
   if (sourceSearch !== prevSourceSearch) {
     setPrevSourceSearch(sourceSearch)
     setSearchInternal(sourceSearch)
+    setPersistedSearch(sourceSearch || null)
   }
 
   const setSearch = React.useCallback(
@@ -583,6 +594,11 @@ export function DatoolDataTable({
     registerTable(tableState)
     return () => registerTable(null)
   }, [registerTable, tableState])
+
+  React.useEffect(() => {
+    registerSearchFieldSpecs(searchFieldSpecs)
+    return () => registerSearchFieldSpecs([])
+  }, [registerSearchFieldSpecs, searchFieldSpecs])
 
   return (
     <DataTableProvider

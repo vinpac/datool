@@ -4,6 +4,10 @@ import * as React from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 import { DatoolAppConfigProvider } from "../app-config"
+import {
+  DatoolNavigationProvider,
+  useOptionalDatoolNavigation,
+} from "../navigation"
 import { DatoolContext, type DatoolClientSourceData, type DatoolContextValue } from "./datool-context"
 import { DatoolSourceProvider } from "./datool-source-provider"
 import type { DatoolClientConfig, DatoolClientSource } from "../../shared/types"
@@ -29,6 +33,20 @@ export type DatoolProviderProps = {
   state?: DatoolStateManager
 }
 
+function getWindowNavigationState() {
+  if (typeof window === "undefined") {
+    return {
+      pathname: "/",
+      search: "",
+    }
+  }
+
+  return {
+    pathname: window.location.pathname || "/",
+    search: window.location.search.replace(/^\?/, ""),
+  }
+}
+
 export function DatoolProvider({
   children,
   client,
@@ -37,15 +55,36 @@ export function DatoolProvider({
   sources,
   state,
 }: DatoolProviderProps) {
+  const parentNavigation = useOptionalDatoolNavigation()
   const queryClient = React.useMemo(
     () => client ?? new QueryClient(),
     [client]
+  )
+  const [navigationState, setNavigationState] = React.useState(
+    getWindowNavigationState
   )
 
   const stateManager = React.useMemo(
     () => state ?? createLocalStorageStateManager(),
     [state]
   )
+
+  React.useEffect(() => {
+    if (parentNavigation || typeof window === "undefined") {
+      return
+    }
+
+    const updateNavigationState = () => {
+      setNavigationState(getWindowNavigationState())
+    }
+
+    updateNavigationState()
+    window.addEventListener("popstate", updateNavigationState)
+
+    return () => {
+      window.removeEventListener("popstate", updateNavigationState)
+    }
+  }, [parentNavigation])
 
   const value = React.useMemo<DatoolContextValue>(() => {
     const configSources = config.sources ?? config.streams ?? []
@@ -78,7 +117,16 @@ export function DatoolProvider({
     <QueryClientProvider client={queryClient}>
       <DatoolAppConfigProvider config={config}>
         <DatoolContext.Provider value={value}>
-          {content}
+          {parentNavigation ? (
+            content
+          ) : (
+            <DatoolNavigationProvider
+              pathname={navigationState.pathname}
+              search={navigationState.search}
+            >
+              {content}
+            </DatoolNavigationProvider>
+          )}
         </DatoolContext.Provider>
       </DatoolAppConfigProvider>
     </QueryClientProvider>

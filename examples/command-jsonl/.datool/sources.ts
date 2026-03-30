@@ -2,7 +2,7 @@ import path from "path"
 import { fileURLToPath } from "url"
 
 import {  source, sources } from "datool"
-import { SAMPLE_JSONL, type SampleWorkflowRow } from "./sample-workflow-data.ts"
+import { SAMPLE_JSONL, type SampleWorkflowRow } from "./sample-workflow-data"
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 
@@ -16,7 +16,7 @@ export type ToyTraceRow =
       spanId: string
       parentSpanId?: string
       name: string
-      resource: "workflow" | "database" | "function"
+      resource: "workflow" | "database" | "function" | "step"
       startTime: string
       endTime: string
       activeStartTime?: string

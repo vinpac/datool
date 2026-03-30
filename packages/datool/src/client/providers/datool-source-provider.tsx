@@ -10,6 +10,7 @@ import {
   type DatoolTableState,
   type DatoolTraceState,
 } from "./datool-source-context"
+import type { DataTableSearchFieldSpec } from "../lib/data-table-search"
 
 export type DatoolSourceProviderProps = {
   children: React.ReactNode
@@ -59,6 +60,9 @@ function DatoolSourceProviderInner({
   } = useDatoolSource(source, clientData?.rows)
 
   const [search, setSearch] = React.useState("")
+  const [searchFieldSpecs, setSearchFieldSpecs] = React.useState<
+    DataTableSearchFieldSpec[]
+  >([])
   const [table, setTable] = React.useState<DatoolTableState | null>(null)
   const [trace, setTrace] = React.useState<DatoolTraceState | null>(null)
 
@@ -71,10 +75,12 @@ function DatoolSourceProviderInner({
       errorMessage,
       isConnected,
       isConnecting,
+      registerSearchFieldSpecs: setSearchFieldSpecs,
       registerTable: setTable,
       registerTrace: setTrace,
       rows,
       search,
+      searchFieldSpecs,
       setRows,
       setSearch,
       setShouldConnect,
@@ -93,6 +99,7 @@ function DatoolSourceProviderInner({
       isConnecting,
       rows,
       search,
+      searchFieldSpecs,
       setRows,
       setShouldConnect,
       shouldConnect,

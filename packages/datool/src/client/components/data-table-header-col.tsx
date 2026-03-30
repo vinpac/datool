@@ -1,4 +1,6 @@
 import { flexRender, type Header } from "@tanstack/react-table"
+import { useSortable } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { ArrowDown, ArrowUp, Search } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
@@ -58,6 +60,7 @@ export function DataTableHeaderCol<TData>({
   onToggleHighlight,
   paddingLeft,
   paddingRight,
+  reorderable = false,
   scrollContainerRef,
 }: {
   header: Header<TData, unknown>
@@ -65,6 +68,7 @@ export function DataTableHeaderCol<TData>({
   onToggleHighlight?: () => void
   paddingLeft?: React.CSSProperties["paddingLeft"]
   paddingRight?: React.CSSProperties["paddingRight"]
+  reorderable?: boolean
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
 }) {
   const meta = (header.column.columnDef.meta ?? {}) as DataTableColumnMeta
@@ -72,25 +76,55 @@ export function DataTableHeaderCol<TData>({
   const canSort = header.column.getCanSort()
   const alignmentClassName = getAlignmentClassName(meta.align)
   const isSticky = meta.sticky === "left"
+  const {
+    attributes,
+    isDragging,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({
+    disabled: !reorderable,
+    id: header.column.id,
+  })
+  const style = React.useMemo(
+    () => ({
+      maxWidth: header.getSize(),
+      minWidth: header.getSize(),
+      transform: transform
+        ? CSS.Transform.toString({
+            ...transform,
+            scaleX: 1,
+            scaleY: 1,
+          })
+        : undefined,
+      transition,
+      width: header.getSize(),
+    }),
+    [header, transform, transition]
+  )
 
   return (
     <th
       className={cn(
         "relative flex shrink-0 border-b border-gray-300 bg-background py-2 align-middle text-xs font-medium tracking-wide text-muted-foreground uppercase dark:border-border",
         isSticky && "sticky left-0 z-20 border-r border-r-border bg-background",
+        isDragging && "z-30 opacity-70 shadow-sm",
         meta.headerClassName
       )}
-      style={{
-        width: header.getSize(),
-      }}
+      ref={setNodeRef}
+      style={style}
     >
       {header.isPlaceholder ? null : canSort ? (
-        <div className="flex w-full min-w-0 items-center gap-2">
+        <div className="flex w-full min-w-0 items-center gap-1">
           <button
+            {...(reorderable ? attributes : {})}
             className={cn(
               "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
+              reorderable && "cursor-grab active:cursor-grabbing",
               alignmentClassName
             )}
+            {...(reorderable ? listeners : {})}
             onClick={header.column.getToggleSortingHandler()}
             style={{
               paddingLeft,
@@ -112,10 +146,13 @@ export function DataTableHeaderCol<TData>({
         </div>
       ) : (
         <div
+          {...(reorderable ? attributes : {})}
           className={cn(
             "flex w-full min-w-0 items-center gap-1 px-0.5 py-1",
+            reorderable && "cursor-grab active:cursor-grabbing",
             alignmentClassName
           )}
+          {...(reorderable ? listeners : {})}
           style={{
             paddingLeft,
             paddingRight,
@@ -139,6 +176,7 @@ export function DataTableHeaderCol<TData>({
                   : "border-transparent text-muted-foreground"
               )}
               onClick={onToggleHighlight}
+              onPointerDown={(event) => event.stopPropagation()}
               type="button"
             >
               <Search className="size-3" />

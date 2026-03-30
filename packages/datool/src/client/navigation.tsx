@@ -46,6 +46,10 @@ export function useDatoolNavigation() {
   return context
 }
 
+export function useOptionalDatoolNavigation() {
+  return React.useContext(DatoolNavigationContext)
+}
+
 // ---------------------------------------------------------------------------
 // Link
 // ---------------------------------------------------------------------------

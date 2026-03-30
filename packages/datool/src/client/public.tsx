@@ -78,6 +78,7 @@ export { ErrorMessage } from "./components/error-message"
 export { LivePlayPause } from "./components/live-play-pause"
 export { RefreshButton } from "./components/refresh-button"
 export { SearchFilter } from "./components/search-filter"
+export { SettingsButton } from "./components/viewer-settings"
 
 export function Table<Row extends Record<string, unknown>>(
   props: DatoolTableProps<Row>

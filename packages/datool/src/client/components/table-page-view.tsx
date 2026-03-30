@@ -1,27 +1,19 @@
 "use client"
 
 import { SidebarTrigger } from "./ui/sidebar"
-import { ViewerSettings } from "./viewer-settings"
+import { SettingsButton } from "./viewer-settings"
 import { ClearButton } from "./clear-button"
 import { ErrorMessage } from "./error-message"
 import { LivePlayPause } from "./live-play-pause"
 import { SearchFilter } from "./search-filter"
 import { DatoolDataTable } from "./datool-data-table"
 import { DatoolSourceProvider } from "../providers/datool-source-provider"
-import {
-  useDatoolSourceContext,
-  useDatoolTableContext,
-} from "../providers/datool-source-context"
 import type { DatoolDateFormat } from "../../shared/types"
 import type { DatoolColumn, DatoolSortingState } from "../table-types"
 
 type ViewerRow = Record<string, unknown> & { __datoolRowId: string }
 
 function TablePageHeader() {
-  const { sourceConfig: activeSource, table } = useDatoolSourceContext()
-
-  if (!table) return null
-
   return (
     <header className="flex w-full flex-wrap items-start justify-between gap-3 px-4">
       <div className="flex min-w-0 flex-1 items-start gap-2">
@@ -31,26 +23,7 @@ function TablePageHeader() {
       <div className="flex flex-wrap items-center gap-2">
         <ClearButton />
         <LivePlayPause />
-        <ViewerSettings
-          columns={table.settingsColumns}
-          exportActions={[
-            { id: "csv", label: "Export CSV", onSelect: () => table.handleExport("csv") },
-            { id: "markdown", label: "Export Markdown", onSelect: () => table.handleExport("md") },
-          ]}
-          groupedColumnIds={table.groupedColumnIds}
-          isDisabled={!activeSource}
-          onClearGrouping={() => table.setGroupedColumnIds([])}
-          onToggleColumn={(columnId, visible) =>
-            table.setColumnVisibility((current) => ({ ...current, [columnId]: visible }))
-          }
-          onToggleGrouping={(columnId, grouped) =>
-            table.setGroupedColumnIds((current) =>
-              grouped
-                ? current.includes(columnId) ? current : [...current, columnId]
-                : current.filter((id) => id !== columnId)
-            )
-          }
-        />
+        <SettingsButton />
       </div>
     </header>
   )

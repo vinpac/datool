@@ -1,31 +1,38 @@
-# datool workspace
+# datool registry
 
-This repo now contains a Bun workspace for the `datool` package and runnable example projects.
+This repo now ships a deployable shadcn registry for two install targets:
 
-## Workspace layout
+- `data-table`
+- `trace-viewer`
 
-- `packages/datool`: the publishable package, CLI, server runtime, built-in sources, frontend, tests, and package README
-- `examples/command-jsonl`: example project backed by a local command source
-- `examples/file-tail`: example project backed by a tailed local file
+The source registry items live in [registry/new-york](/Users/vinpac/lab/vite-app/registry/new-york), and the generated installable JSON files are emitted to `public/r` during the build.
 
-## Common commands
+## Build the registry and site
 
 ```bash
 bun install
 bun run build
-bun run test
 ```
 
-## Try the examples
+## Run the landing page locally
 
 ```bash
-cd examples/command-jsonl
-bunx datool
+bun run dev
 ```
+
+## Deploy to Vercel
+
+The root app is a Vite site. Vercel can deploy it directly from the repo root using:
 
 ```bash
-cd examples/file-tail
-bunx datool
+bun run build
 ```
 
-Package usage and API docs live in [packages/datool/README.md](/Users/vinpac/lab/vite-app/packages/datool/README.md).
+After deployment, install directly from the generated item URLs:
+
+```bash
+npx shadcn@latest add https://YOUR-DOMAIN/r/data-table.json
+npx shadcn@latest add https://YOUR-DOMAIN/r/trace-viewer.json
+```
+
+The original `datool` package source still lives in [packages/datool](/Users/vinpac/lab/vite-app/packages/datool).

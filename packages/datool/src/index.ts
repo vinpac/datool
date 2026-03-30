@@ -3,6 +3,7 @@ import { fileSource } from "./node/sources/file.ts"
 import { sshSource } from "./node/sources/ssh.ts"
 import type { DatoolSourceDefinition, DatoolStreamDefinition } from "./shared/types.ts"
 
+export * from "./root-public.tsx"
 export * from "./shared/types.ts"
 
 export function defineStream<

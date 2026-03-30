@@ -30,6 +30,14 @@ export function SearchFilter({
 }) {
   const tableContext = useOptionalDataTableContext()
   const sourceContext = useOptionalDatoolSourceContext()
+  const sourceSearchFields = React.useMemo(
+    () =>
+      (sourceContext?.searchFieldSpecs ?? []).map((field) => ({
+        ...field,
+        getValue: () => undefined,
+      })),
+    [sourceContext?.searchFieldSpecs]
+  )
 
   // If we're inside a DataTableProvider, DataTableSearchInput will auto-connect
   // via useOptionalDataTableContext(). Just render it.
@@ -53,7 +61,7 @@ export function SearchFilter({
           onSearchChange={sourceContext.setSearch}
           placeholder={placeholder}
           value={sourceContext.search}
-          fields={[]}
+          fields={sourceSearchFields}
         />
       </div>
     )
