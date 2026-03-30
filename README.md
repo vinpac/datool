@@ -4,6 +4,7 @@ This repo now ships a deployable shadcn registry for two install targets:
 
 - `data-table`
 - `trace-viewer`
+- `react-query-datool`
 
 The source registry items live in [registry/new-york](/Users/vinpac/lab/vite-app/registry/new-york), and the generated installable JSON files are emitted to `public/r` during the build.
 
@@ -33,6 +34,7 @@ After deployment, install directly from the generated item URLs:
 ```bash
 npx shadcn@latest add https://YOUR-DOMAIN/r/data-table.json
 npx shadcn@latest add https://YOUR-DOMAIN/r/trace-viewer.json
+npx shadcn@latest add https://YOUR-DOMAIN/r/react-query-datool.json
 ```
 
 The original `datool` package source still lives in [packages/datool](/Users/vinpac/lab/vite-app/packages/datool).

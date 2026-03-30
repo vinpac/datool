@@ -1,7 +1,7 @@
 {
   "$schema": "https://ui.shadcn.com/schema/registry.json",
   "name": "datool",
-  "homepage": "https://your-registry.vercel.app",
+  "homepage": "https://datool-psi.vercel.app",
   "items": [
     {
       "name": "data-table",
@@ -329,6 +329,39 @@
         },
         {
           "path": "registry/new-york/trace-viewer/components/trace-viewer/util/use-trackpad-zoom.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "react-query-datool",
+      "type": "registry:component",
+      "title": "React Query Datool",
+      "description": "A lightweight query-driven Datool provider with connected search, refresh, reset, and table components.",
+      "categories": ["data-display", "tooling"],
+      "dependencies": [
+        "@tanstack/react-query",
+        "lucide-react"
+      ],
+      "files": [
+        {
+          "path": "registry/new-york/react-query-datool/components/datool/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/react-query-datool/components/datool/provider.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/react-query-datool/components/datool/data-table.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/react-query-datool/components/datool/controls.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/new-york/react-query-datool/components/datool/types.ts",
           "type": "registry:component"
         }
       ]

@@ -13,54 +13,37 @@ import {
   ComboboxTrigger,
   ComboboxValue,
 } from "./ui/combobox"
-import { useDatoolTraceGroupPicker } from "../providers/datool-source-context"
+import { useDatoolTraceGroupPicker } from "../providers/datool-context"
 
-/**
- * Connected trace group picker.
- * Reads group state from the source context (registered by DatoolTraceViewer).
- * Renders nothing if no trace groups are configured.
- */
-export function DatoolTraceGroupPicker() {
-  const groupPicker = useDatoolTraceGroupPicker()
+export function DatoolTraceGroupPicker({ query }: { query?: string }) {
+  const groupPicker = useDatoolTraceGroupPicker(query)
 
   if (!groupPicker || groupPicker.groups.length === 0) {
     return null
   }
 
-  return (
-    <TraceGroupPickerInner
-      groups={groupPicker.groups}
-      onValueChange={groupPicker.onValueChange}
-      selectedGroupId={groupPicker.selectedGroupId}
-    />
-  )
-}
-
-function TraceGroupPickerInner({
-  groups,
-  onValueChange,
-  selectedGroupId,
-}: {
-  groups: Array<{ displayName: string; id: string }>
-  onValueChange: (value: string | undefined) => void
-  selectedGroupId: string | undefined
-}) {
-  const items = React.useMemo(
-    () => groups.map((g) => ({ label: g.displayName, value: g.id })),
-    [groups]
-  )
-  const selectedItem = items.find((i) => i.value === selectedGroupId) ?? null
+  const items = groupPicker.groups.map((group) => ({
+    label: group.displayName,
+    value: group.id,
+  }))
+  const selectedItem =
+    items.find((item) => item.value === groupPicker.selectedGroupId) ?? null
 
   return (
     <Combobox
       items={items}
       value={selectedItem}
-      itemToStringLabel={(i) => i.label}
-      itemToStringValue={(i) => i.value}
       isItemEqualToValue={(a, b) => a.value === b.value}
-      onValueChange={(i) => onValueChange(i?.value)}
+      itemToStringLabel={(item) => item.label}
+      itemToStringValue={(item) => item.value}
+      onValueChange={(item) => groupPicker.onValueChange(item?.value)}
     >
-      <Button asChild variant="ghost" size="xl" className="flex items-center cursor-pointer text-lg!">
+      <Button
+        asChild
+        className="flex cursor-pointer items-center text-lg!"
+        size="xl"
+        variant="ghost"
+      >
         <ComboboxTrigger>
           <ComboboxValue>{selectedItem?.label}</ComboboxValue>
         </ComboboxTrigger>
@@ -70,7 +53,11 @@ function TraceGroupPickerInner({
         <ComboboxEmpty>No groups found.</ComboboxEmpty>
         <ComboboxList>
           {(item: { label: string; value: string }) => (
-            <ComboboxItem key={item.value} value={item} className="text-sm py-2 px-3">
+            <ComboboxItem
+              key={item.value}
+              className="px-3 py-2 text-sm"
+              value={item}
+            >
               <span className="truncate">{item.label}</span>
             </ComboboxItem>
           )}

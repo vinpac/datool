@@ -1,134 +1,186 @@
 "use client"
 
 import * as React from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-
-import { DatoolAppConfigProvider } from "../app-config"
 import {
-  DatoolNavigationProvider,
-  useOptionalDatoolNavigation,
-} from "../navigation"
-import { DatoolContext, type DatoolClientSourceData, type DatoolContextValue } from "./datool-context"
-import { DatoolSourceProvider } from "./datool-source-provider"
-import type { DatoolClientConfig, DatoolClientSource } from "../../shared/types"
-import type { DatoolStateManager } from "../lib/state-manager"
-import { createLocalStorageStateManager } from "../lib/state-manager"
+  QueryClient,
+  QueryClientProvider,
+  useQueries,
+} from "@tanstack/react-query"
+
+import type { DatoolQueryDefinition } from "../../shared/types"
+import { DatoolContextProvider } from "./datool-context"
+import type {
+  DatoolTableState,
+  DatoolTraceState,
+} from "./datool-context"
+import type { DataTableSearchFieldSpec } from "../lib/data-table-search"
 
 export type DatoolProviderProps = {
   children: React.ReactNode
-  client?: QueryClient
-  config: DatoolClientConfig
-  /** When provided, an implicit DatoolSourceProvider is created for this source. */
-  defaultSource?: string
-  /** Client-supplied source data keyed by source id (e.g. `{ workflows: { rows: [...] } }`). */
-  sources?: Record<string, DatoolClientSourceData>
-  /**
-   * Pluggable state persistence.
-   *
-   * Pass a `DatoolStateManager` (or use the built-in factories
-   * `createQueryParamsStateManager()` / `createLocalStorageStateManager()`).
-   *
-   * Defaults to `createLocalStorageStateManager()`.
-   */
-  state?: DatoolStateManager
-}
-
-function getWindowNavigationState() {
-  if (typeof window === "undefined") {
-    return {
-      pathname: "/",
-      search: "",
-    }
-  }
-
-  return {
-    pathname: window.location.pathname || "/",
-    search: window.location.search.replace(/^\?/, ""),
-  }
+  defaultQuery?: string
+  queries: Record<string, DatoolQueryDefinition<any, any, any>>
+  queryClient?: QueryClient
 }
 
 export function DatoolProvider({
   children,
-  client,
-  config,
-  defaultSource,
-  sources,
-  state,
+  defaultQuery,
+  queries,
+  queryClient: providedQueryClient,
 }: DatoolProviderProps) {
-  const parentNavigation = useOptionalDatoolNavigation()
   const queryClient = React.useMemo(
-    () => client ?? new QueryClient(),
-    [client]
+    () => providedQueryClient ?? new QueryClient(),
+    [providedQueryClient]
   )
-  const [navigationState, setNavigationState] = React.useState(
-    getWindowNavigationState
-  )
-
-  const stateManager = React.useMemo(
-    () => state ?? createLocalStorageStateManager(),
-    [state]
-  )
-
-  React.useEffect(() => {
-    if (parentNavigation || typeof window === "undefined") {
-      return
-    }
-
-    const updateNavigationState = () => {
-      setNavigationState(getWindowNavigationState())
-    }
-
-    updateNavigationState()
-    window.addEventListener("popstate", updateNavigationState)
-
-    return () => {
-      window.removeEventListener("popstate", updateNavigationState)
-    }
-  }, [parentNavigation])
-
-  const value = React.useMemo<DatoolContextValue>(() => {
-    const configSources = config.sources ?? config.streams ?? []
-
-    return {
-      clientSourceData: new Map<string, DatoolClientSourceData>(
-        sources ? Object.entries(sources) : []
-      ),
-      config,
-      defaultSource: defaultSource ?? null,
-      queryClient,
-      sourceById: new Map<string, DatoolClientSource>(
-        configSources.map((s) => [s.id, s])
-      ),
-      stateManager,
-    }
-  }, [config, defaultSource, queryClient, sources, stateManager])
-
-  let content = children
-
-  if (defaultSource) {
-    content = (
-      <DatoolSourceProvider source={defaultSource}>
-        {children}
-      </DatoolSourceProvider>
-    )
-  }
 
   return (
     <QueryClientProvider client={queryClient}>
-      <DatoolAppConfigProvider config={config}>
-        <DatoolContext.Provider value={value}>
-          {parentNavigation ? (
-            content
-          ) : (
-            <DatoolNavigationProvider
-              pathname={navigationState.pathname}
-              search={navigationState.search}
-            >
-              {content}
-            </DatoolNavigationProvider>
-          )}
-        </DatoolContext.Provider>
-      </DatoolAppConfigProvider>
+      <DatoolProviderInner
+        defaultQuery={defaultQuery}
+        queries={queries}
+        queryClient={queryClient}
+      >
+        {children}
+      </DatoolProviderInner>
     </QueryClientProvider>
+  )
+}
+
+function DatoolProviderInner({
+  children,
+  defaultQuery,
+  queries,
+  queryClient,
+}: Required<Pick<DatoolProviderProps, "children" | "queries">> & {
+  defaultQuery?: string
+  queryClient: QueryClient
+}) {
+  const queryEntries = React.useMemo(() => Object.entries(queries), [queries])
+
+  if (queryEntries.length === 0) {
+    throw new Error("DatoolProvider requires at least one query definition.")
+  }
+
+  const resolvedDefaultQuery = React.useMemo(() => {
+    if (defaultQuery) {
+      if (!queries[defaultQuery]) {
+        throw new Error(`Unknown default datool query "${defaultQuery}".`)
+      }
+
+      return defaultQuery
+    }
+
+    if (queryEntries.length === 1) {
+      return queryEntries[0]![0]
+    }
+
+    throw new Error(
+      "DatoolProvider requires a defaultQuery when more than one query is registered."
+    )
+  }, [defaultQuery, queries, queryEntries])
+
+  const queryResults = useQueries({
+    queries: queryEntries.map(([, definition]) => {
+      const options = definition.getQueryOptions(definition.filters)
+
+      return {
+        ...options,
+        refetchInterval:
+          definition.pollingIntervalMs === undefined
+            ? options.refetchInterval
+            : definition.pollingIntervalMs,
+      }
+    }),
+  })
+
+  const [searchFieldSpecsByQueryId, setSearchFieldSpecsByQueryId] =
+    React.useState<Record<string, DataTableSearchFieldSpec[]>>({})
+  const [tableStateByQueryId, setTableStateByQueryId] = React.useState<
+    Record<string, DatoolTableState | null>
+  >({})
+  const [traceStateByQueryId, setTraceStateByQueryId] = React.useState<
+    Record<string, DatoolTraceState | null>
+  >({})
+
+  const registerSearchFieldSpecs = React.useCallback(
+    (queryId: string, fields: DataTableSearchFieldSpec[]) => {
+      setSearchFieldSpecsByQueryId((current) => {
+        if (current[queryId] === fields) {
+          return current
+        }
+
+        return {
+          ...current,
+          [queryId]: fields,
+        }
+      })
+    },
+    []
+  )
+
+  const registerTable = React.useCallback(
+    (queryId: string, state: DatoolTableState | null) => {
+      setTableStateByQueryId((current) => {
+        if (current[queryId] === state) {
+          return current
+        }
+
+        return {
+          ...current,
+          [queryId]: state,
+        }
+      })
+    },
+    []
+  )
+
+  const registerTrace = React.useCallback(
+    (queryId: string, state: DatoolTraceState | null) => {
+      setTraceStateByQueryId((current) => {
+        if (current[queryId] === state) {
+          return current
+        }
+
+        return {
+          ...current,
+          [queryId]: state,
+        }
+      })
+    },
+    []
+  )
+
+  const value = React.useMemo(
+    () => ({
+      defaultQueryId: resolvedDefaultQuery,
+      queryClient,
+      queryDefinitions: queries,
+      queryResults: Object.fromEntries(
+        queryEntries.map(([queryId], index) => [queryId, queryResults[index]])
+      ),
+      registerSearchFieldSpecs,
+      registerTable,
+      registerTrace,
+      searchFieldSpecsByQueryId,
+      tableStateByQueryId,
+      traceStateByQueryId,
+    }),
+    [
+      queryClient,
+      queries,
+      queryEntries,
+      queryResults,
+      registerSearchFieldSpecs,
+      registerTable,
+      registerTrace,
+      resolvedDefaultQuery,
+      searchFieldSpecsByQueryId,
+      tableStateByQueryId,
+      traceStateByQueryId,
+    ]
+  )
+
+  return (
+    <DatoolContextProvider value={value}>{children}</DatoolContextProvider>
   )
 }

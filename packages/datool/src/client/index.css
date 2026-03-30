@@ -2,6 +2,8 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+@source "./**/*.{js,jsx,ts,tsx}";
+
 @custom-variant dark (&:is(.dark *));
 
 :root {

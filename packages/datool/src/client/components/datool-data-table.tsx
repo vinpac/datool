@@ -9,42 +9,37 @@ import {
   DataTableProvider,
   type DataTableColumnConfig,
   type DataTableRowAction,
+  type DataTableRowActionContext,
   useDataTableContext,
 } from "./data-table"
 import {
   DataTableColIcon,
   type DataTableColumnKind,
 } from "./data-table-col-icon"
-import { useDatoolSourceContext } from "../providers/datool-source-context"
-import type { DatoolTableState } from "../providers/datool-source-context"
-import { useDatoolAppConfig } from "../app-config"
-import { useDatoolNavigation } from "../navigation"
+import type { DatoolTableState } from "../providers/datool-context"
+import { useDatoolCollectionQuery } from "../providers/datool-context"
 import {
   getValueAtPath,
   isNestedAccessorKey,
   resolveDatoolColumnId,
 } from "../../shared/columns"
 import type {
-  DatoolActionRequest,
-  DatoolActionRowChange,
-  DatoolActionResponse,
   DatoolDateFormat,
+  DatoolQueryAction,
+  DatoolQueryActionContext,
 } from "../../shared/types"
-import { LOG_VIEWER_ICONS } from "../lib/datool-icons"
 import {
   quoteSearchTokenValue,
   splitSearchQuery,
   type DataTableSearchFieldSpec,
 } from "../lib/data-table-search"
-import { useDatoolState } from "../hooks/use-datool-state"
-import { useOptionalDatoolContext } from "../providers/datool-context"
 import { downloadTextFile, sanitizeFilePart } from "../lib/file-download"
 import type { DatoolColumn, DatoolSortingState } from "../table-types"
 import { buildTableSearchFields } from "../lib/filterable-table"
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import {
+  stripViewerRowId,
+  type StreamViewerRow,
+} from "../stream-state"
 
 type ViewerRow = Record<string, unknown> & { __datoolRowId: string }
 
@@ -59,17 +54,10 @@ export type DatoolDataTableProps = {
   columns: DatoolColumn<ViewerRow>[]
   dateFormat?: DatoolDateFormat
   defaultSorting?: DatoolSortingState
+  query?: string
   rowClassName?: (row: ViewerRow) => string | undefined
   rowHeight?: number
   rowStyle?: (row: ViewerRow) => React.CSSProperties | undefined
-}
-
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
-
-function toActionRows(rows: ViewerRow[]): Record<string, unknown>[] {
-  return rows.map(({ __datoolRowId: _datoolRowId, ...row }) => row)
 }
 
 function formatColumnLabel(key: string) {
@@ -81,17 +69,16 @@ function formatColumnLabel(key: string) {
     .replace(/\b\w/g, (match) => match.toUpperCase())
 }
 
-function getTableId(pathname: string) {
-  return `datool-${pathname === "/" ? "index" : pathname.replace(/[^a-z0-9/-]+/gi, "-")}`
-}
-
 function stringifyGroupingValue(value: unknown) {
   if (value === undefined) return "undefined:"
   if (value === null) return "null:"
   if (value instanceof Date) return `date:${value.toISOString()}`
   if (typeof value === "object") {
-    try { return `object:${JSON.stringify(value)}` }
-    catch { return `object:${String(value)}` }
+    try {
+      return `object:${JSON.stringify(value)}`
+    } catch {
+      return `object:${String(value)}`
+    }
   }
   return `${typeof value}:${String(value)}`
 }
@@ -100,37 +87,32 @@ function groupViewerRows(rows: ViewerRow[], columns: ViewerExportColumn[]) {
   if (columns.length === 0 || rows.length === 0) return rows
   const groupOrder: string[] = []
   const rowsByGroup = new Map<string, ViewerRow[]>()
+
   for (const row of rows) {
     const groupKey = columns
-      .map((c) => stringifyGroupingValue(getValueAtPath(row, c.accessorKey)))
+      .map((column) => stringifyGroupingValue(getValueAtPath(row, column.accessorKey)))
       .join("\u001f")
     const existing = rowsByGroup.get(groupKey)
-    if (existing) { existing.push(row) }
-    else { groupOrder.push(groupKey); rowsByGroup.set(groupKey, [row]) }
-  }
-  return groupOrder.flatMap((k) => rowsByGroup.get(k) ?? [])
-}
 
-function applyActionRowChanges(
-  currentRows: ViewerRow[],
-  targetRowIds: string[],
-  rowChanges: Array<DatoolActionRowChange<Record<string, unknown>>> | undefined
-) {
-  if (!rowChanges || rowChanges.length === 0) return currentRows
-  const map = new Map(targetRowIds.map((id, i) => [id, rowChanges[i] ?? true]))
-  return currentRows.flatMap((row) => {
-    const change = map.get(row.__datoolRowId)
-    if (change === undefined || change === true) return [row]
-    if (change === false || change === null) return []
-    return [{ ...change, __datoolRowId: row.__datoolRowId }]
-  })
+    if (existing) {
+      existing.push(row)
+    } else {
+      groupOrder.push(groupKey)
+      rowsByGroup.set(groupKey, [row])
+    }
+  }
+
+  return groupOrder.flatMap((groupKey) => rowsByGroup.get(groupKey) ?? [])
 }
 
 function stringifyExportValue(value: unknown, kind?: DataTableColumnKind) {
   if (value === null || value === undefined || value === "") return ""
   if (kind === "date") {
-    const d = value instanceof Date ? value : new Date(value as string | number)
-    if (!Number.isNaN(d.getTime())) return d.toISOString()
+    const date = value instanceof Date ? value : new Date(value as string | number)
+
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString()
+    }
   }
   if (typeof value === "object") return JSON.stringify(value)
   return String(value)
@@ -145,19 +127,33 @@ function escapeMarkdownValue(value: string) {
 }
 
 function buildCsvContent(rows: ViewerRow[], columns: ViewerExportColumn[]) {
-  const header = columns.map((c) => escapeCsvValue(c.label)).join(",")
+  const header = columns.map((column) => escapeCsvValue(column.label)).join(",")
   const data = rows.map((row) =>
-    columns.map((c) => escapeCsvValue(stringifyExportValue(getValueAtPath(row, c.accessorKey), c.kind))).join(",")
+    columns
+      .map((column) =>
+        escapeCsvValue(
+          stringifyExportValue(getValueAtPath(row, column.accessorKey), column.kind)
+        )
+      )
+      .join(",")
   )
+
   return [header, ...data].join("\n")
 }
 
 function buildMarkdownContent(rows: ViewerRow[], columns: ViewerExportColumn[]) {
-  const header = `| ${columns.map((c) => escapeMarkdownValue(c.label)).join(" | ")} |`
+  const header = `| ${columns.map((column) => escapeMarkdownValue(column.label)).join(" | ")} |`
   const divider = `| ${columns.map(() => "---").join(" | ")} |`
   const data = rows.map((row) =>
-    `| ${columns.map((c) => escapeMarkdownValue(stringifyExportValue(getValueAtPath(row, c.accessorKey), c.kind))).join(" | ")} |`
+    `| ${columns
+      .map((column) =>
+        escapeMarkdownValue(
+          stringifyExportValue(getValueAtPath(row, column.accessorKey), column.kind)
+        )
+      )
+      .join(" | ")} |`
   )
+
   return [header, divider, ...data].join("\n")
 }
 
@@ -166,10 +162,13 @@ function buildTableColumns(
 ): DataTableColumnConfig<ViewerRow>[] {
   return columns.map((column, index) => {
     const nested = isNestedAccessorKey(column.accessorKey)
+
     return {
       ...column,
       accessorFn: nested ? (row) => getValueAtPath(row, column.accessorKey) : undefined,
-      accessorKey: nested ? undefined : (column.accessorKey as Extract<keyof ViewerRow, string>),
+      accessorKey: nested
+        ? undefined
+        : (column.accessorKey as Extract<keyof ViewerRow, string>),
       id: resolveDatoolColumnId(column, index),
     }
   })
@@ -196,88 +195,167 @@ function getColumnLabel(column: DataTableColumnConfig<ViewerRow>, index: number)
   return column.header ?? column.id ?? column.accessorKey ?? `Column ${index + 1}`
 }
 
-function toMarkdownTable(tableRows: ViewerRow[], tableColumns: DataTableColumnConfig<ViewerRow>[]) {
-  const headers = tableColumns.map((c, i) => escapeMarkdownCell(getColumnLabel(c, i)))
+function toMarkdownTable(
+  rows: ViewerRow[],
+  columns: DataTableColumnConfig<ViewerRow>[]
+) {
+  const headers = columns.map((column, index) =>
+    escapeMarkdownCell(getColumnLabel(column, index))
+  )
+
   return [
     `| ${headers.join(" | ")} |`,
     `| ${headers.map(() => "---").join(" | ")} |`,
-    ...tableRows.map((row) => {
-      const vals = tableColumns.map((c) => escapeMarkdownCell(stringifyRowActionValue(getColumnValue(row, c))))
-      return `| ${vals.join(" | ")} |`
+    ...rows.map((row) => {
+      const values = columns.map((column) =>
+        escapeMarkdownCell(stringifyRowActionValue(getColumnValue(row, column)))
+      )
+
+      return `| ${values.join(" | ")} |`
     }),
   ].join("\n")
 }
 
 function buildFieldFilterToken(fieldId: string, value: unknown) {
-  const s = stringifyRowActionValue(value)
-  return s.trim() ? `${fieldId}:${quoteSearchTokenValue(s)}` : null
+  const stringValue = stringifyRowActionValue(value)
+  return stringValue.trim() ? `${fieldId}:${quoteSearchTokenValue(stringValue)}` : null
 }
 
 function replaceFieldFilter(query: string, fieldId: string, nextToken: string) {
   const escaped = fieldId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   const tokens = splitSearchQuery(query).filter(
-    (t) => !t.match(new RegExp(`^${escaped}(:|>|<)`))
+    (token) => !token.match(new RegExp(`^${escaped}(:|>|<)`))
   )
   tokens.push(nextToken)
   return tokens.join(" ")
 }
 
-// ---------------------------------------------------------------------------
-// Inner component (renders inside DataTableProvider, builds row actions)
-// ---------------------------------------------------------------------------
+function toViewerRows<TRow extends Record<string, unknown>>(
+  rows: TRow[],
+  getRowId: (row: TRow, index: number) => string
+) {
+  return rows.map(
+    (row, index) =>
+      ({
+        ...row,
+        __datoolRowId: getRowId(row, index),
+      }) as StreamViewerRow<TRow>
+  )
+}
+
+function toDatoolActionContext<TData, TFilters, TRow extends Record<string, unknown>>({
+  collection,
+  context,
+}: {
+  collection: {
+    definition: Extract<
+      ReturnType<typeof useDatoolCollectionQuery<TData, TFilters, TRow>>["definition"],
+      { kind: "collection" }
+    >
+    id: string
+    result: ReturnType<typeof useDatoolCollectionQuery<TData, TFilters, TRow>>["result"]
+    rows: TRow[]
+  }
+  context: DataTableRowActionContext<ViewerRow>
+}) {
+  return {
+    actionRowIds: context.actionRowIds,
+    actionRows: context.actionRows.map((row) => stripViewerRowId(row as StreamViewerRow<TRow>)),
+    anchorRow: stripViewerRowId(context.anchorRow as StreamViewerRow<TRow>),
+    anchorRowId: context.anchorRowId,
+    filters: collection.definition.filters,
+    queryId: collection.id,
+    refetch: collection.result.refetch,
+    result: collection.result,
+    rows: collection.rows,
+    selectedRowIds: context.selectedRowIds,
+    selectedRows: context.selectedRows.map((row) =>
+      stripViewerRowId(row as StreamViewerRow<TRow>)
+    ),
+    setFilters: collection.definition.setFilters,
+  } satisfies DatoolQueryActionContext<TData, TFilters, TRow>
+}
 
 function DatoolDataTableInner({
   columns,
+  collection,
 }: {
+  collection: ReturnType<
+    typeof useDatoolCollectionQuery<
+      Record<string, unknown>[],
+      unknown,
+      Record<string, unknown>
+    >
+  >
   columns: DataTableColumnConfig<ViewerRow>[]
 }) {
   const { search, setSearch } = useDataTableContext<ViewerRow>()
-  const { setRows, sourceConfig: activeSource } = useDatoolSourceContext<ViewerRow>()
   const searchRef = React.useRef(search)
 
-  React.useEffect(() => { searchRef.current = search }, [search])
+  React.useEffect(() => {
+    searchRef.current = search
+  }, [search])
 
   const rowActions = React.useMemo<DataTableRowAction<ViewerRow>[]>(() => {
-    const configActions =
-      activeSource?.actions.map(
-        (action): DataTableRowAction<ViewerRow> => ({
+    const datoolActions =
+      (collection.definition.actions as DatoolQueryAction<
+        unknown,
+        unknown,
+        Record<string, unknown>
+      >[] | undefined)?.map((action, index) => {
+        const disabled = action.disabled
+        const hidden = action.hidden
+        const label = action.label
+
+        return {
           button: action.button,
-          icon: action.icon ? LOG_VIEWER_ICONS[action.icon] : undefined,
-          id: `config-${action.id}`,
-          label: action.label,
-          onSelect: async ({ actionRowIds, actionRows }) => {
-            if (!activeSource) return
-            const url = new URL(
-              `/api/sources/${encodeURIComponent(activeSource.id)}/actions/${encodeURIComponent(action.id)}`,
-              window.location.origin
-            )
-            const currentParams = new URL(window.location.href).searchParams
-            for (const [key, value] of currentParams.entries()) url.searchParams.set(key, value)
-            const requestBody: DatoolActionRequest = { rows: toActionRows(actionRows) }
-            const response = await fetch(url, {
-              body: JSON.stringify(requestBody),
-              headers: { "Content-Type": "application/json" },
-              method: "POST",
-            })
-            const payload = (await response.json().catch(() => null)) as
-              | (DatoolActionResponse & { error?: string })
-              | null
-            if (!response.ok) {
-              throw new Error(payload?.error ?? `Failed to run action "${action.label}".`)
-            }
-            if (payload?.rowChanges !== undefined && !Array.isArray(payload.rowChanges)) {
-              throw new Error(`Action "${action.label}" returned an invalid response.`)
-            }
-            setRows((currentRows) =>
-              applyActionRowChanges(currentRows, actionRowIds, payload?.rowChanges)
+          disabled:
+            typeof disabled === "function"
+              ? (context: DataTableRowActionContext<ViewerRow>) =>
+                  disabled(
+                    toDatoolActionContext({
+                      collection,
+                      context,
+                    })
+                  )
+              : disabled,
+          hidden:
+            typeof hidden === "function"
+              ? (context: DataTableRowActionContext<ViewerRow>) =>
+                  hidden(
+                    toDatoolActionContext({
+                      collection,
+                      context,
+                    })
+                  )
+              : hidden,
+          icon: action.icon,
+          id: `query-action-${index}`,
+          label:
+            typeof label === "function"
+              ? (context: DataTableRowActionContext<ViewerRow>) =>
+                  label(
+                    toDatoolActionContext({
+                      collection,
+                      context,
+                    })
+                  )
+              : label,
+          onSelect: async (context: DataTableRowActionContext<ViewerRow>) => {
+            await action.onSelect(
+              toDatoolActionContext({
+                collection,
+                context,
+              })
             )
           },
-          scope: "selection",
-        })
-      ) ?? []
+          scope: action.scope,
+          variant: action.variant,
+        }
+      }) ?? []
 
     return [
-      ...configActions,
+      ...datoolActions,
       {
         icon: Copy,
         id: "copy-markdown",
@@ -297,14 +375,25 @@ function DatoolDataTableInner({
           columns.map((column, index) => {
             const value = getColumnValue(anchorRow, column)
             const token = buildFieldFilterToken(column.id ?? `column-${index}`, value)
+
             return {
               disabled: token === null,
-              icon: (props) => <DataTableColIcon kind={column.kind ?? "text"} {...props} />,
+              icon: (props) => (
+                <DataTableColIcon kind={column.kind ?? "text"} {...props} />
+              ),
               id: `filter-${column.id ?? index}`,
-              label: `${getColumnLabel(column, index)}: ${stringifyRowActionValue(value) || "(empty)"}`,
+              label: `${getColumnLabel(column, index)}: ${
+                stringifyRowActionValue(value) || "(empty)"
+              }`,
               onSelect: () => {
                 if (!token) return
-                setSearch(replaceFieldFilter(searchRef.current, column.id ?? `column-${index}`, token))
+                setSearch(
+                  replaceFieldFilter(
+                    searchRef.current,
+                    column.id ?? `column-${index}`,
+                    token
+                  )
+                )
               },
               scope: "row",
             } satisfies DataTableRowAction<ViewerRow>
@@ -313,7 +402,7 @@ function DatoolDataTableInner({
         scope: "row",
       },
     ]
-  }, [activeSource, columns, setRows, setSearch])
+  }, [collection, columns, setSearch])
 
   return (
     <div className="min-h-0 flex-1">
@@ -322,100 +411,26 @@ function DatoolDataTableInner({
   )
 }
 
-// ---------------------------------------------------------------------------
-// Connected DataTable (level 2)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// State key helpers
-// ---------------------------------------------------------------------------
-
-type PersistedTableState = {
-  columnSizing?: Record<string, number>
-  columnVisibility?: VisibilityState
-  groupBy?: string[]
-}
-
-function sanitizeColumnVisibility(
-  raw: VisibilityState | undefined,
-  columnIds: string[]
-) {
-  const valid = new Set(columnIds)
-  return Object.fromEntries(
-    Object.entries(raw ?? {}).filter(([id]) => valid.has(id))
-  )
-}
-
-function sanitizeColumnSizing(
-  raw: Record<string, number> | undefined,
-  columnIds: string[]
-) {
-  const valid = new Set(columnIds)
-  return Object.fromEntries(
-    Object.entries(raw ?? {}).filter(
-      ([id, w]) => valid.has(id) && typeof w === "number" && Number.isFinite(w) && w > 0
-    )
-  )
-}
-
-function sanitizeGroupBy(raw: string[] | undefined, columnIds: string[]) {
-  const valid = new Set(columnIds)
-  return (raw ?? []).filter((id, i, a) => valid.has(id) && a.indexOf(id) === i)
-}
-
-// ---------------------------------------------------------------------------
-// Connected DataTable (level 2)
-// ---------------------------------------------------------------------------
-
 export function DatoolDataTable({
   columns: declaredColumns,
   dateFormat,
   defaultSorting,
+  query,
   rowClassName,
   rowHeight = 20,
   rowStyle,
 }: DatoolDataTableProps) {
-  const location = useDatoolNavigation()
-  const { config } = useDatoolAppConfig()
-  const sourceCtx = useDatoolSourceContext<ViewerRow>()
-  const {
-    registerSearchFieldSpecs,
-    registerTable,
-    rows,
-    search: sourceSearch,
-    setSearch: setSourceSearch,
-  } = sourceCtx
-
-  const tableId = React.useMemo(
-    () => getTableId(location.pathname),
-    [location.pathname]
+  const collection = useDatoolCollectionQuery<Record<string, unknown>[], unknown, Record<string, unknown>>(
+    query
   )
-
-  // ---- State manager (direct access for compound table state) ----
-  const datoolCtx = useOptionalDatoolContext()
-  const stateManager = datoolCtx?.stateManager ?? null
-
-  const searchStateKey = `${tableId}-search`
-  const tableStateKey = `datatable-${tableId}`
-
-  const [persistedSearch, setPersistedSearch] = useDatoolState(searchStateKey)
-
-  // Read initial table state directly from state manager (avoids object-ref cycles)
-  function readTableState(ids: string[]): PersistedTableState {
-    const raw = stateManager?.get(tableStateKey)
-    if (!raw) return {}
-    try { return JSON.parse(raw) as PersistedTableState } catch { return {} }
-  }
-
-  const columns = React.useMemo(() => buildTableColumns(declaredColumns), [declaredColumns])
-  const searchFieldSpecs = React.useMemo<DataTableSearchFieldSpec[]>(
-    () =>
-      buildTableSearchFields(columns, rows.slice(0, 200)).map(
-        ({ getValue: _getValue, ...field }) => field
-      ),
-    [columns, rows]
+  const viewerRows = React.useMemo(
+    () => toViewerRows(collection.rows, collection.definition.getRowId),
+    [collection.definition, collection.rows]
   )
-
+  const columns = React.useMemo(
+    () => buildTableColumns(declaredColumns),
+    [declaredColumns]
+  )
   const exportColumns = React.useMemo(
     () =>
       declaredColumns.map((column, index) => ({
@@ -426,101 +441,17 @@ export function DatoolDataTable({
       })),
     [declaredColumns]
   )
-
-  const columnIds = React.useMemo(
-    () => exportColumns.map((c) => c.id),
-    [exportColumns]
+  const searchFieldSpecs = React.useMemo<DataTableSearchFieldSpec[]>(
+    () =>
+      buildTableSearchFields(columns, viewerRows.slice(0, 200)).map(
+        ({ getValue: _getValue, ...field }) => field
+      ),
+    [columns, viewerRows]
   )
-
-  // ---- Local state (initialized from state manager) ----
-  const [search, setSearchInternal] = React.useState(persistedSearch)
-  const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>(
-    () => sanitizeColumnSizing(readTableState(columnIds).columnSizing, columnIds)
-  )
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
-    () => sanitizeColumnVisibility(readTableState(columnIds).columnVisibility, columnIds)
-  )
-  const [groupedColumnIds, setGroupedColumnIds] = React.useState<string[]>(
-    () => sanitizeGroupBy(readTableState(columnIds).groupBy, columnIds)
-  )
-
-  // Subscribe to state manager for back/forward nav (popstate, storage, etc.)
-  React.useEffect(() => {
-    if (!stateManager) return
-    return stateManager.subscribe(() => {
-      const tableState = readTableState(columnIds)
-      setColumnSizing(sanitizeColumnSizing(tableState.columnSizing, columnIds))
-      setColumnVisibility(sanitizeColumnVisibility(tableState.columnVisibility, columnIds))
-      setGroupedColumnIds(sanitizeGroupBy(tableState.groupBy, columnIds))
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateManager, tableStateKey, columnIds])
-
-  // Sync persisted search → local (back/forward)
-  const [prevPersistedSearch, setPrevPersistedSearch] = React.useState(persistedSearch)
-  if (persistedSearch !== prevPersistedSearch) {
-    setPrevPersistedSearch(persistedSearch)
-    setSearchInternal(persistedSearch)
-    setSourceSearch(persistedSearch)
-  }
-
-  // Init: sync persisted search to source context on mount
-  React.useEffect(() => {
-    if (persistedSearch) {
-      setSourceSearch(persistedSearch)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Sync external sourceSearch changes (e.g. from SearchFilter)
-  const [prevSourceSearch, setPrevSourceSearch] = React.useState(sourceSearch)
-  if (sourceSearch !== prevSourceSearch) {
-    setPrevSourceSearch(sourceSearch)
-    setSearchInternal(sourceSearch)
-    setPersistedSearch(sourceSearch || null)
-  }
-
-  const setSearch = React.useCallback(
-    (value: string) => {
-      setSearchInternal(value)
-      setSourceSearch(value)
-      setPersistedSearch(value || null)
-    },
-    [setSourceSearch, setPersistedSearch]
-  )
-
-  // Debounced write-through for table state
-  React.useEffect(() => {
-    if (!stateManager) return
-    const timeoutId = window.setTimeout(() => {
-      const nextColumnSizing = sanitizeColumnSizing(columnSizing, columnIds)
-      const nextColumnVisibility = sanitizeColumnVisibility(columnVisibility, columnIds)
-      const nextGroupBy = sanitizeGroupBy(groupedColumnIds, columnIds)
-
-      const next: PersistedTableState = {}
-      if (Object.keys(nextColumnSizing).length > 0) next.columnSizing = nextColumnSizing
-      if (Object.keys(nextColumnVisibility).length > 0) next.columnVisibility = nextColumnVisibility
-      if (nextGroupBy.length > 0) next.groupBy = nextGroupBy
-
-      if (Object.keys(next).length > 0) {
-        stateManager.set(tableStateKey, JSON.stringify(next))
-      } else {
-        stateManager.delete(tableStateKey)
-      }
-    }, 300)
-    return () => window.clearTimeout(timeoutId)
-  }, [columnIds, columnSizing, columnVisibility, groupedColumnIds, stateManager, tableStateKey])
-
-  // Cmd+F
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-        event.preventDefault()
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [])
+  const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({})
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+  const [groupedColumnIds, setGroupedColumnIds] = React.useState<string[]>([])
+  const tableId = `datool-${collection.id}`
 
   const settingsColumns = React.useMemo(
     () =>
@@ -534,71 +465,78 @@ export function DatoolDataTable({
   )
 
   const visibleExportColumns = React.useMemo(
-    () => exportColumns.filter((c) => columnVisibility[c.id] !== false),
+    () => exportColumns.filter((column) => columnVisibility[column.id] !== false),
     [columnVisibility, exportColumns]
   )
 
   const exportColumnsById = React.useMemo(
-    () => new Map(exportColumns.map((c) => [c.id, c])),
+    () => new Map(exportColumns.map((column) => [column.id, column])),
     [exportColumns]
   )
 
   const groupedExportColumns = React.useMemo(
     () =>
       groupedColumnIds.flatMap((id) => {
-        const c = exportColumnsById.get(id)
-        return c ? [c] : []
+        const column = exportColumnsById.get(id)
+        return column ? [column] : []
       }),
     [exportColumnsById, groupedColumnIds]
   )
 
   const groupedRows = React.useMemo(
-    () => groupViewerRows(rows, groupedExportColumns),
-    [groupedExportColumns, rows]
+    () => groupViewerRows(viewerRows, groupedExportColumns),
+    [groupedExportColumns, viewerRows]
   )
 
   const handleExport = React.useCallback(
     (format: "csv" | "md") => {
       if (visibleExportColumns.length === 0) return
-      const fileBaseName = `${sanitizeFilePart(
-        location.pathname
-      )}-${new Date().toISOString().replaceAll(":", "-")}`
+      const fileBaseName = `${sanitizeFilePart(collection.id)}-${new Date()
+        .toISOString()
+        .replaceAll(":", "-")}`
       const content =
         format === "csv"
           ? buildCsvContent(groupedRows, visibleExportColumns)
           : buildMarkdownContent(groupedRows, visibleExportColumns)
+
       downloadTextFile(
         content,
         `${fileBaseName}.${format}`,
         format === "csv" ? "text/csv" : "text/markdown"
       )
     },
-    [groupedRows, location.pathname, visibleExportColumns]
+    [collection.id, groupedRows, visibleExportColumns]
   )
 
-  // Register table state on source context
+  const reset = React.useCallback(() => {
+    setColumnSizing({})
+    setColumnVisibility({})
+    setGroupedColumnIds([])
+  }, [])
+
   const tableState = React.useMemo<DatoolTableState>(
     () => ({
-      columnIds,
+      columnIds: exportColumns.map((column) => column.id),
       columnVisibility,
       groupedColumnIds,
       handleExport,
+      reset,
       setColumnVisibility,
       setGroupedColumnIds,
       settingsColumns,
     }),
-    [columnIds, columnVisibility, groupedColumnIds, handleExport, settingsColumns]
+    [columnVisibility, exportColumns, groupedColumnIds, handleExport, reset, settingsColumns]
   )
 
   React.useEffect(() => {
-    registerTable(tableState)
-    return () => registerTable(null)
-  }, [registerTable, tableState])
+    collection.registerTable(tableState)
+    return () => collection.registerTable(null)
+  }, [collection.registerTable, tableState])
 
   React.useEffect(() => {
-    registerSearchFieldSpecs(searchFieldSpecs)
-    return () => registerSearchFieldSpecs([])
-  }, [registerSearchFieldSpecs, searchFieldSpecs])
+    collection.registerSearchFieldSpecs(searchFieldSpecs)
+    return () => collection.registerSearchFieldSpecs([])
+  }, [collection.registerSearchFieldSpecs, searchFieldSpecs])
 
   return (
     <DataTableProvider
@@ -606,8 +544,8 @@ export function DatoolDataTable({
       columnSizing={columnSizing}
       columnVisibility={columnVisibility}
       columns={columns}
-      data={rows}
-      dateFormat={dateFormat ?? config.dateFormat}
+      data={viewerRows}
+      dateFormat={dateFormat}
       defaultSorting={defaultSorting}
       getRowId={(row) => row.__datoolRowId}
       grouping={groupedColumnIds}
@@ -616,14 +554,14 @@ export function DatoolDataTable({
       onColumnSizingChange={setColumnSizing}
       onColumnVisibilityChange={setColumnVisibility}
       onGroupingChange={setGroupedColumnIds}
-      onSearchChange={setSearch}
+      onSearchChange={collection.definition.search?.onChange}
       rowClassName={rowClassName}
-      rowStyle={rowStyle}
-      search={search}
       rowHeight={rowHeight}
+      rowStyle={rowStyle}
+      search={collection.definition.search?.value}
       statePersistence="none"
     >
-      <DatoolDataTableInner columns={columns} />
+      <DatoolDataTableInner collection={collection} columns={columns} />
     </DataTableProvider>
   )
 }

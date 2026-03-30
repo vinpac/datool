@@ -7,41 +7,23 @@ import {
   type DataTableSearchInputHandle,
 } from "./data-table-search-input"
 import { useOptionalDataTableContext } from "./data-table"
-import { useOptionalDatoolSourceContext } from "../providers/datool-source-context"
+import { useDatoolCollectionQuery } from "../providers/datool-context"
 
-/**
- * Connected search filter.
- *
- * When used inside a DataTableProvider (e.g. inside DatoolDataTable), it
- * automatically reads/writes the table-level search state.
- *
- * When used outside a DataTableProvider but inside a DatoolSourceProvider,
- * it reads/writes the source-level search state — which the connected
- * DataTable will pick up via the shared DatoolSourceContext.
- */
 export function SearchFilter({
   className,
   inputRef,
   placeholder,
+  query,
 }: {
   className?: string
   inputRef?: React.RefObject<DataTableSearchInputHandle | null>
   placeholder?: string
+  query?: string
 }) {
   const tableContext = useOptionalDataTableContext()
-  const sourceContext = useOptionalDatoolSourceContext()
-  const sourceSearchFields = React.useMemo(
-    () =>
-      (sourceContext?.searchFieldSpecs ?? []).map((field) => ({
-        ...field,
-        getValue: () => undefined,
-      })),
-    [sourceContext?.searchFieldSpecs]
-  )
+  const datoolQuery = useDatoolCollectionQuery(query)
 
-  // If we're inside a DataTableProvider, DataTableSearchInput will auto-connect
-  // via useOptionalDataTableContext(). Just render it.
-  if (tableContext) {
+  if (!query && tableContext) {
     return (
       <div className={className ?? "min-w-0 flex-1"}>
         <DataTableSearchInput
@@ -52,28 +34,28 @@ export function SearchFilter({
     )
   }
 
-  // Outside DataTableProvider — use controlled mode with source context
-  if (sourceContext) {
+  if (
+    datoolQuery &&
+    datoolQuery.definition.kind === "collection" &&
+    datoolQuery.definition.search
+  ) {
+    const fields = datoolQuery.searchFieldSpecs.map((field) => ({
+      ...field,
+      getValue: () => undefined,
+    }))
+
     return (
       <div className={className ?? "min-w-0 flex-1"}>
         <DataTableSearchInput
+          fields={fields}
           inputRef={inputRef}
-          onSearchChange={sourceContext.setSearch}
+          onSearchChange={datoolQuery.definition.search.onChange}
           placeholder={placeholder}
-          value={sourceContext.search}
-          fields={sourceSearchFields}
+          value={datoolQuery.definition.search.value}
         />
       </div>
     )
   }
 
-  // Fallback — uncontrolled (no context available)
-  return (
-    <div className={className ?? "min-w-0 flex-1"}>
-      <DataTableSearchInput
-        inputRef={inputRef}
-        placeholder={placeholder}
-      />
-    </div>
-  )
+  return null
 }

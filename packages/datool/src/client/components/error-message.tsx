@@ -1,17 +1,24 @@
 "use client"
 
-import { useDatoolSourceContext } from "../providers/datool-source-context"
+import { useDatoolQuery } from "../providers/datool-context"
 
 export function ErrorMessage({
   className = "px-4 text-sm text-destructive",
+  query,
 }: {
   className?: string
+  query?: string
 }) {
-  const { errorMessage } = useDatoolSourceContext()
+  const datoolQuery = useDatoolQuery(query)
+  const error = datoolQuery.result.error
 
-  if (!errorMessage) {
+  if (!error) {
     return null
   }
 
-  return <div className={className}>{errorMessage}</div>
+  return (
+    <div className={className}>
+      {error instanceof Error ? error.message : String(error)}
+    </div>
+  )
 }

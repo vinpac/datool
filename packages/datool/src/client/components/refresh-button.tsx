@@ -1,30 +1,26 @@
 "use client"
 
 import { RefreshCwIcon } from "lucide-react"
-import { useQueryClient } from "@tanstack/react-query"
 
 import { Button } from "./ui/button"
-import { useDatoolSourceContext } from "../providers/datool-source-context"
+import { useDatoolQuery } from "../providers/datool-context"
 
 export function RefreshButton({
   className,
   label = "Refresh data",
+  query,
 }: {
   className?: string
   label?: string
+  query?: string
 }) {
-  const { sourceId } = useDatoolSourceContext()
-  const queryClient = useQueryClient()
+  const datoolQuery = useDatoolQuery(query)
 
   return (
     <Button
       aria-label={label}
       className={className}
-      onClick={() =>
-        queryClient.invalidateQueries({
-          queryKey: ["datool-rows", sourceId],
-        })
-      }
+      onClick={() => void datoolQuery.result.refetch()}
       size="icon-xl"
       type="button"
       variant="outline"

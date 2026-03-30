@@ -2,37 +2,19 @@
   "name": "datool",
   "version": "0.0.24",
   "type": "module",
-  "description": "Local-only config-driven log viewer with SSE streaming and a generic table UI.",
-  "bin": {
-    "datool": "./dist/node/cli.js"
-  },
-  "types": "./dist/browser.d.ts",
+  "description": "React Query-first composable data tools for tables and trace views.",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/browser.d.ts",
-      "browser": "./dist/browser.js",
-      "react-server": "./dist/browser.js",
-      "node": "./dist/index.js",
-      "default": "./dist/browser.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
-    "./next": {
-      "types": "./dist/next/index.d.ts",
-      "default": "./dist/next/index.js"
-    },
-    "./next/server": {
-      "types": "./dist/next/server.d.ts",
-      "default": "./dist/next/server.js"
-    },
-    "./page": {
-      "types": "./dist/client/public.d.ts",
-      "default": "./dist/client/public.js"
-    },
-    "./next/styles.css": "./dist/client/index.css"
+    "./styles.css": "./dist/client/index.css"
   },
   "files": [
     "dist",
-    "src",
-    "README.md"
+    "README.md",
+    "TRACE_VIEWER.md"
   ],
   "scripts": {
     "build": "bun run typecheck && bun run build:runtime && bun run build:types",
@@ -41,7 +23,6 @@
     "prepare": "bun run build",
     "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "bun test tests/packaged-consumer.test.ts",
     "test": "bun test",
     "lint": "eslint src tests --ext .ts,.tsx"
   },

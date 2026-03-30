@@ -137,8 +137,8 @@ export type DatoolTraceViewerProps<
   Row extends Record<string, unknown> = Record<string, unknown>,
   GroupRow extends Record<string, unknown> = never,
 > = {
+  query?: string
   schema: DatoolTraceSchema<Row>
-  source: string
   groups?: DatoolTraceGroupsConfig<GroupRow, Row>
 }
 

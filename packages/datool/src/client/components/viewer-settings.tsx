@@ -29,7 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu"
 import { cn } from "../lib/utils"
-import { useOptionalDatoolSourceContext } from "../providers/datool-source-context"
+import { useDatoolQuery } from "../providers/datool-context"
 
 type ViewerSettingsColumn = {
   id: string
@@ -39,25 +39,26 @@ type ViewerSettingsColumn = {
 }
 
 type ViewerSettingsExportAction = {
+  disabled?: boolean
   id: string
   label: string
-  disabled?: boolean
   onSelect: () => void
 }
 
 type ViewerSettingsMenuProps = {
+  className?: string
   columns?: ViewerSettingsColumn[]
+  exportActions?: ViewerSettingsExportAction[]
   groupedColumnIds?: string[]
   isDisabled?: boolean
-  exportActions?: ViewerSettingsExportAction[]
   onClearGrouping?: () => void
-  onToggleGrouping?: (columnId: string, grouped: boolean) => void
   onToggleColumn?: (columnId: string, visible: boolean) => void
-  className?: string
+  onToggleGrouping?: (columnId: string, grouped: boolean) => void
 }
 
 export type SettingsButtonProps = {
   className?: string
+  query?: string
 }
 
 const THEME_OPTIONS: Array<{
@@ -83,16 +84,16 @@ const THEME_OPTIONS: Array<{
 ]
 
 function ViewerSettingsMenu({
+  className,
   columns = [],
+  exportActions = [],
   groupedColumnIds = [],
   isDisabled = false,
-  exportActions = [],
   onClearGrouping,
-  onToggleGrouping,
   onToggleColumn,
-  className,
+  onToggleGrouping,
 }: ViewerSettingsMenuProps) {
-  const { theme, setTheme } = useTheme()
+  const { setTheme, theme } = useTheme()
   const canManageColumns = columns.length > 0 && typeof onToggleColumn === "function"
   const canManageGrouping =
     columns.length > 0 &&
@@ -102,7 +103,6 @@ function ViewerSettingsMenu({
     () =>
       groupedColumnIds.flatMap((columnId) => {
         const column = columns.find((candidate) => candidate.id === columnId)
-
         return column ? [column.label] : []
       }),
     [columns, groupedColumnIds]
@@ -112,20 +112,20 @@ function ViewerSettingsMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
+          aria-label="Open settings"
+          className={cn("shrink-0", className)}
+          disabled={isDisabled}
+          size="icon-xl"
           type="button"
           variant="outline"
-          size="icon-xl"
-          disabled={isDisabled}
-          className={cn("shrink-0", className)}
-          aria-label="Open settings"
         >
           <EllipsisIcon className="size-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        sideOffset={10}
         className="w-64 max-w-[min(24rem,calc(100vw-2rem))]"
+        sideOffset={10}
       >
         <DropdownMenuLabel>View</DropdownMenuLabel>
         {canManageColumns ? (
@@ -142,18 +142,18 @@ function ViewerSettingsMenu({
                   key={column.id}
                   checked={column.visible}
                   className="min-h-9 text-sm"
-                  onSelect={(event) => {
-                    event.preventDefault()
-                  }}
                   onCheckedChange={(checked) =>
                     onToggleColumn?.(column.id, checked === true)
                   }
+                  onSelect={(event) => {
+                    event.preventDefault()
+                  }}
                 >
                   <span className="flex min-w-0 items-center gap-2 pr-4">
                     {column.kind ? (
                       <DataTableColIcon
-                        kind={column.kind}
                         className="size-4 shrink-0 text-muted-foreground"
+                        kind={column.kind}
                       />
                     ) : null}
                     <span className="truncate">{column.label}</span>
@@ -195,18 +195,18 @@ function ViewerSettingsMenu({
                   key={column.id}
                   checked={groupedColumnIds.includes(column.id)}
                   className="min-h-9 text-sm"
-                  onSelect={(event) => {
-                    event.preventDefault()
-                  }}
                   onCheckedChange={(checked) =>
                     onToggleGrouping?.(column.id, checked === true)
                   }
+                  onSelect={(event) => {
+                    event.preventDefault()
+                  }}
                 >
                   <span className="flex min-w-0 items-center gap-2 pr-4">
                     {column.kind ? (
                       <DataTableColIcon
-                        kind={column.kind}
                         className="size-4 shrink-0 text-muted-foreground"
+                        kind={column.kind}
                       />
                     ) : null}
                     <span className="truncate">{column.label}</span>
@@ -226,8 +226,8 @@ function ViewerSettingsMenu({
             <DropdownMenuLabel>Appearance</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuRadioGroup
-              value={theme}
               onValueChange={(value) => setTheme(value as Theme)}
+              value={theme}
             >
               {THEME_OPTIONS.map((option) => {
                 const Icon = option.icon
@@ -235,8 +235,8 @@ function ViewerSettingsMenu({
                 return (
                   <DropdownMenuRadioItem
                     key={option.value}
-                    value={option.value}
                     className="min-h-9 text-sm"
+                    value={option.value}
                   >
                     <Icon className="size-4 text-muted-foreground" />
                     {option.label}
@@ -268,12 +268,11 @@ function ViewerSettingsMenu({
   )
 }
 
-export function SettingsButton({ className }: SettingsButtonProps) {
-  const sourceContext = useOptionalDatoolSourceContext()
-  const table = sourceContext?.table ?? null
-  const trace = sourceContext?.trace ?? null
-  const rows = sourceContext?.rows ?? []
-  const activeSource = sourceContext?.sourceConfig ?? null
+export function SettingsButton({ className, query }: SettingsButtonProps) {
+  const datoolQuery = useDatoolQuery(query)
+  const table = datoolQuery.table
+  const trace = datoolQuery.trace
+  const rows = datoolQuery.rows
 
   const exportActions = React.useMemo<ViewerSettingsExportAction[]>(() => {
     if (table) {
@@ -318,15 +317,9 @@ export function SettingsButton({ className }: SettingsButtonProps) {
       exportActions={exportActions}
       groupedColumnIds={table?.groupedColumnIds}
       isDisabled={
-        table
-          ? !activeSource
-          : trace
-            ? rows.length === 0 && !trace.hasTrace
-            : false
+        table ? rows.length === 0 : trace ? rows.length === 0 && !trace.hasTrace : false
       }
-      onClearGrouping={
-        table ? () => table.setGroupedColumnIds([]) : undefined
-      }
+      onClearGrouping={table ? () => table.setGroupedColumnIds([]) : undefined}
       onToggleColumn={
         table
           ? (columnId, visible) =>
