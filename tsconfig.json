@@ -6,6 +6,28 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/components/data-table": [
+        "./registry/data-table/components/data-table/index.tsx"
+      ],
+      "@/components/data-table/*": [
+        "./registry/data-table/components/data-table/*"
+      ],
+      "@/components/datool": [
+        "./registry/react-query-datool/components/datool/index.ts"
+      ],
+      "@/components/datool/*": [
+        "./registry/react-query-datool/components/datool/*"
+      ],
+      "@/components/trace-viewer": [
+        "./registry/trace-viewer/components/trace-viewer/index.tsx"
+      ],
+      "@/components/trace-viewer/*": [
+        "./registry/trace-viewer/components/trace-viewer/*"
+      ]
+    }
   }
 }

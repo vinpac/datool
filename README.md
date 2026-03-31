@@ -1,12 +1,12 @@
 # datool registry
 
-This repo now ships a deployable shadcn registry for two install targets:
+This repo is a registry-first home for three installable shadcn items:
 
 - `data-table`
 - `trace-viewer`
 - `react-query-datool`
 
-The source registry items live in [registry/new-york](/Users/vinpac/lab/vite-app/registry/new-york), and the generated installable JSON files are emitted to `public/r` during the build.
+The canonical source lives under [registry](/Users/vinpac/lab/vite-app/registry), and the generated installable JSON files are emitted to `public/r` during the build.
 
 ## Build the registry and site
 
@@ -37,4 +37,15 @@ npx shadcn@latest add https://YOUR-DOMAIN/r/trace-viewer.json
 npx shadcn@latest add https://YOUR-DOMAIN/r/react-query-datool.json
 ```
 
-The original `datool` package source still lives in [packages/datool](/Users/vinpac/lab/vite-app/packages/datool).
+## Source layout
+
+- [registry/data-table](/Users/vinpac/lab/vite-app/registry/data-table): canonical `data-table` source
+- [registry/trace-viewer](/Users/vinpac/lab/vite-app/registry/trace-viewer): canonical `trace-viewer` source
+- [registry/react-query-datool](/Users/vinpac/lab/vite-app/registry/react-query-datool): canonical `react-query-datool` source
+- [public/r](/Users/vinpac/lab/vite-app/public/r): generated registry JSON served by the site
+
+`react-query-datool` is designed to layer on top of the installed `data-table` component, so consumer apps should install both items when using the React Query wrapper.
+
+## Docs
+
+- [Trace viewer guide](/Users/vinpac/lab/vite-app/docs/trace-viewer.md)

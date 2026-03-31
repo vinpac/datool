@@ -29,7 +29,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-packages/datool/dist-types
-examples/react-query-demo/src/components/data-table/
-examples/react-query-demo/src/components/datool/
 .next
+public/r

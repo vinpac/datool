@@ -22,61 +22,50 @@
         "radix-ui",
         "tailwind-merge"
       ],
+      "registryDependencies": ["button", "context-menu", "tooltip"],
       "files": [
         {
-          "path": "registry/new-york/data-table/components/data-table/index.tsx",
+          "path": "registry/data-table/components/data-table/index.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/data-table-cell.tsx",
+          "path": "registry/data-table/components/data-table/data-table-cell.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/data-table-col-icon.tsx",
+          "path": "registry/data-table/components/data-table/data-table-col-icon.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/data-table-header-col.tsx",
+          "path": "registry/data-table/components/data-table/data-table-header-col.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/enum-badge.tsx",
+          "path": "registry/data-table/components/data-table/enum-badge.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/lib/data-table-search.ts",
+          "path": "registry/data-table/components/data-table/lib/data-table-text-search.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/lib/filterable-table.ts",
+          "path": "registry/data-table/components/data-table/lib/data-table-filters.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/lib/table-search-persistence.ts",
+          "path": "registry/data-table/components/data-table/lib/table-search-persistence.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/lib/utils.ts",
+          "path": "registry/data-table/components/data-table/lib/utils.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/shared/date-format.ts",
+          "path": "registry/data-table/components/data-table/lib/date-format.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/data-table/components/data-table/shared/types.ts",
-          "type": "registry:component"
-        },
-        {
-          "path": "registry/new-york/data-table/components/data-table/ui/button.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "registry/new-york/data-table/components/data-table/ui/context-menu.tsx",
-          "type": "registry:component"
-        },
-        {
-          "path": "registry/new-york/data-table/components/data-table/ui/tooltip.tsx",
+          "path": "registry/data-table/components/data-table/types.ts",
           "type": "registry:component"
         }
       ]
@@ -224,111 +213,141 @@
       },
       "files": [
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/index.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/index.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/context.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/context.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/lib/utils.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/lib/utils.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/modules.d.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/modules.d.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/trace-viewer.module.css",
+          "path": "registry/trace-viewer/components/trace-viewer/trace-viewer.module.css",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/trace-viewer.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/trace-viewer.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/types.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/types.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/worker.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/worker.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/map.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/map.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/markers.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/markers.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/node.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/node.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/search-input.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/search-input.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/search.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/search.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/span-content.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/span-content.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/span-detail-panel.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/span-detail-panel.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/span-segments.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/components/span-segments.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/span-strategies.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/components/span-strategies.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/ui.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/ui.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/zoom-button.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/zoom-button.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/components/zoom-icons.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/components/zoom-icons.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/constants.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/util/constants.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/scrollbar-width.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/util/scrollbar-width.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/timing.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/util/timing.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/tree.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/util/tree.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/use-immediate-style.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/util/use-immediate-style.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/use-streaming-spans.ts",
+          "path": "registry/trace-viewer/components/trace-viewer/util/use-streaming-spans.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/trace-viewer/components/trace-viewer/util/use-trackpad-zoom.tsx",
+          "path": "registry/trace-viewer/components/trace-viewer/util/use-trackpad-zoom.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "search-bar",
+      "type": "registry:component",
+      "title": "Search Bar",
+      "description": "A token-aware controlled search input with typed suggestions, possible values, and query-builder interactions.",
+      "categories": ["forms", "data-display"],
+      "dependencies": [
+        "@tiptap/core",
+        "@tiptap/extension-document",
+        "@tiptap/extension-paragraph",
+        "@tiptap/extension-placeholder",
+        "@tiptap/extension-text",
+        "@tiptap/react",
+        "lucide-react"
+      ],
+      "files": [
+        {
+          "path": "registry/search-bar/components/search-bar/index.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/search-bar/components/search-bar/search-core.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/search-bar/components/search-bar/search-input.tsx",
           "type": "registry:component"
         }
       ]
@@ -341,27 +360,49 @@
       "categories": ["data-display", "tooling"],
       "dependencies": [
         "@tanstack/react-query",
+        "@tiptap/core",
+        "@tiptap/extension-document",
+        "@tiptap/extension-paragraph",
+        "@tiptap/extension-placeholder",
+        "@tiptap/extension-text",
+        "@tiptap/react",
         "lucide-react"
       ],
       "files": [
         {
-          "path": "registry/new-york/react-query-datool/components/datool/index.ts",
+          "path": "registry/react-query-datool/components/datool/index.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/react-query-datool/components/datool/provider.tsx",
+          "path": "registry/react-query-datool/components/datool/provider.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/react-query-datool/components/datool/data-table.tsx",
+          "path": "registry/react-query-datool/components/datool/data-table.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/react-query-datool/components/datool/controls.tsx",
+          "path": "registry/react-query-datool/components/datool/controls.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/new-york/react-query-datool/components/datool/types.ts",
+          "path": "registry/react-query-datool/components/datool/search-bar.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/react-query-datool/components/datool/types.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/search-bar/components/search-bar/index.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/search-bar/components/search-bar/search-core.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/search-bar/components/search-bar/search-input.tsx",
           "type": "registry:component"
         }
       ]
