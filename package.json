@@ -8,10 +8,10 @@
     "examples/*"
   ],
   "scripts": {
-    "dev": "vite",
-    "build": "bun run build:registry && vite build",
+    "dev": "next dev",
+    "build": "next build",
     "build:registry": "shadcn build",
-    "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p tsconfig.registry.json",
+    "typecheck": "tsc -p tsconfig.json",
     "test": "bun test tests",
     "lint": "eslint src registry tests vite.config.ts",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,md,json}\""
@@ -47,5 +47,8 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.1",
     "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "react-resizable-panels": "^4"
   }
 }

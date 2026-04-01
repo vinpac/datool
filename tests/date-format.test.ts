@@ -4,7 +4,7 @@ import {
   formatDateValue,
   formatUtcDateValue,
   normalizeDateFormatPattern,
-} from "../registry/data-table/components/data-table/lib/date-format"
+} from "@/components/ui/datool/data-table/lib/date-format"
 
 describe("date formatting", () => {
   test("supports common uppercase date tokens in string patterns", () => {

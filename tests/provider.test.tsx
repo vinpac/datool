@@ -9,11 +9,11 @@ import {
   useDatoolCollectionQuery,
   useDatoolQuery,
   useDatoolSearch,
-} from "../registry/react-query-datool/components/datool/provider"
+} from "@/components/ui/datool/core"
 import type {
   DatoolInstance,
   DatoolQueryActionContext,
-} from "../registry/react-query-datool/components/datool/types"
+} from "@/components/ui/datool/core"
 
 type PromptRow = {
   id: string

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 import {
   cn,
   formatDuration,
-} from "../registry/trace-viewer/components/trace-viewer/lib/utils"
+} from "@/components/ui/datool/trace-viewer/lib/utils"
 
 describe("trace viewer utils", () => {
   test("formats long durations in compact and expanded forms", () => {

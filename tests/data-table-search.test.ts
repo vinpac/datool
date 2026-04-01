@@ -6,7 +6,7 @@ import {
   quoteSearchTokenValue,
   splitSearchQuery,
   type DataTableSearchField,
-} from "../registry/data-table/components/data-table/lib/data-table-text-search"
+} from "@/components/ui/datool/data-table/lib/data-table-text-search"
 
 type SearchRow = {
   level: string
