@@ -25,51 +25,51 @@
       "registryDependencies": ["button", "context-menu", "tooltip"],
       "files": [
         {
-          "path": "registry/data-table/components/data-table/index.tsx",
+          "path": "components/ui/datool/data-table/index.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/data-cell.tsx",
+          "path": "components/ui/datool/data-table/data-cell.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/data-table-cell.tsx",
+          "path": "components/ui/datool/data-table/data-table-cell.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/data-table-col-icon.tsx",
+          "path": "components/ui/datool/data-table/data-table-col-icon.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/data-table-header-col.tsx",
+          "path": "components/ui/datool/data-table/data-table-header-col.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/enum-badge.tsx",
+          "path": "components/ui/datool/data-table/enum-badge.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/lib/data-table-text-search.ts",
+          "path": "components/ui/datool/data-table/lib/data-table-text-search.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/lib/data-table-filters.ts",
+          "path": "components/ui/datool/data-table/lib/data-table-filters.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/lib/table-search-persistence.ts",
+          "path": "components/ui/datool/data-table/lib/table-search-persistence.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/lib/utils.ts",
+          "path": "components/ui/datool/data-table/lib/utils.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/lib/date-format.ts",
+          "path": "components/ui/datool/data-table/lib/date-format.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/data-table/components/data-table/types.ts",
+          "path": "components/ui/datool/data-table/types.ts",
           "type": "registry:component"
         }
       ]
@@ -217,111 +217,111 @@
       },
       "files": [
         {
-          "path": "registry/trace-viewer/components/trace-viewer/index.tsx",
+          "path": "components/ui/datool/trace-viewer/index.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/context.tsx",
+          "path": "components/ui/datool/trace-viewer/context.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/lib/utils.ts",
+          "path": "components/ui/datool/trace-viewer/lib/utils.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/modules.d.ts",
+          "path": "components/ui/datool/trace-viewer/modules.d.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/trace-viewer.module.css",
+          "path": "components/ui/datool/trace-viewer/trace-viewer.module.css",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/trace-viewer.tsx",
+          "path": "components/ui/datool/trace-viewer/trace-viewer.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/types.ts",
+          "path": "components/ui/datool/trace-viewer/types.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/worker.ts",
+          "path": "components/ui/datool/trace-viewer/worker.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/map.tsx",
+          "path": "components/ui/datool/trace-viewer/components/map.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/markers.tsx",
+          "path": "components/ui/datool/trace-viewer/components/markers.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/node.tsx",
+          "path": "components/ui/datool/trace-viewer/components/node.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/search-input.tsx",
+          "path": "components/ui/datool/trace-viewer/components/search-input.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/search.tsx",
+          "path": "components/ui/datool/trace-viewer/components/search.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/span-content.tsx",
+          "path": "components/ui/datool/trace-viewer/components/span-content.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/span-detail-panel.tsx",
+          "path": "components/ui/datool/trace-viewer/components/span-detail-panel.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/span-segments.ts",
+          "path": "components/ui/datool/trace-viewer/components/span-segments.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/span-strategies.ts",
+          "path": "components/ui/datool/trace-viewer/components/span-strategies.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/ui.tsx",
+          "path": "components/ui/datool/trace-viewer/components/ui.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/zoom-button.tsx",
+          "path": "components/ui/datool/trace-viewer/components/zoom-button.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/components/zoom-icons.tsx",
+          "path": "components/ui/datool/trace-viewer/components/zoom-icons.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/util/constants.ts",
+          "path": "components/ui/datool/trace-viewer/util/constants.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/util/scrollbar-width.ts",
+          "path": "components/ui/datool/trace-viewer/util/scrollbar-width.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/util/timing.ts",
+          "path": "components/ui/datool/trace-viewer/util/timing.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/util/tree.ts",
+          "path": "components/ui/datool/trace-viewer/util/tree.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/util/use-immediate-style.ts",
+          "path": "components/ui/datool/trace-viewer/util/use-immediate-style.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/util/use-streaming-spans.ts",
+          "path": "components/ui/datool/trace-viewer/util/use-streaming-spans.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/trace-viewer/components/trace-viewer/util/use-trackpad-zoom.tsx",
+          "path": "components/ui/datool/trace-viewer/util/use-trackpad-zoom.tsx",
           "type": "registry:component"
         }
       ]
@@ -343,15 +343,15 @@
       ],
       "files": [
         {
-          "path": "registry/search-bar/components/search-bar/index.tsx",
+          "path": "components/ui/datool/search-bar/index.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/search-bar/components/search-bar/search-core.ts",
+          "path": "components/ui/datool/search-bar/search-core.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/search-bar/components/search-bar/search-input.tsx",
+          "path": "components/ui/datool/search-bar/search-input.tsx",
           "type": "registry:component"
         }
       ]
@@ -382,55 +382,55 @@
       ],
       "files": [
         {
-          "path": "registry/react-query-datool/components/datool/index.ts",
+          "path": "components/ui/datool/core/index.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/react-query-datool/components/datool/provider.tsx",
+          "path": "components/ui/datool/core/provider.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/react-query-datool/components/datool/data-table.tsx",
+          "path": "components/ui/datool/core/data-table.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/react-query-datool/components/datool/controls.tsx",
+          "path": "components/ui/datool/core/controls.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/react-query-datool/components/datool/info-table.tsx",
+          "path": "components/ui/datool/core/info-table.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/react-query-datool/components/datool/query-settings.tsx",
+          "path": "components/ui/datool/core/query-settings.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/react-query-datool/components/datool/search-bar.tsx",
+          "path": "components/ui/datool/core/search-bar.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/react-query-datool/components/datool/trace-viewer.tsx",
+          "path": "components/ui/datool/core/trace-viewer.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/react-query-datool/components/datool/types.ts",
+          "path": "components/ui/datool/core/types.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/react-query-datool/components/info-table/info-table.tsx",
+          "path": "components/ui/datool/info-table/info-table.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/search-bar/components/search-bar/index.tsx",
+          "path": "components/ui/datool/search-bar/index.tsx",
           "type": "registry:component"
         },
         {
-          "path": "registry/search-bar/components/search-bar/search-core.ts",
+          "path": "components/ui/datool/search-bar/search-core.ts",
           "type": "registry:component"
         },
         {
-          "path": "registry/search-bar/components/search-bar/search-input.tsx",
+          "path": "components/ui/datool/search-bar/search-input.tsx",
           "type": "registry:component"
         }
       ]
