@@ -7,10 +7,12 @@ import {
   useQuery,
 } from "@tanstack/react-query"
 import { Eye, RotateCcw, Sparkles } from "lucide-react"
+import type { DataTableColumnConfig } from "@/components/ui/datool/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import {
   ClearButton,
   DatoolDataTable,
+  DatoolInfoTable,
   DatoolProvider,
   ErrorMessage,
   RefreshButton,
@@ -38,6 +40,11 @@ type PromptFilters = {
 
 type PromptDetailState = {
   id: string | null
+}
+
+type DatoolDemoState = {
+  promptDetail: PromptDetailState
+  prompts: PromptFilters
 }
 
 const queryClient = new QueryClient()
@@ -87,6 +94,18 @@ const INITIAL_STATE = {
   },
 }
 
+const PROMPT_COLUMNS: DataTableColumnConfig<Prompt>[] = [
+  { accessorKey: "title", header: "Title" },
+  { accessorKey: "status", header: "Status", kind: "enum" },
+  { accessorKey: "owner", header: "Owner" },
+  {
+    accessorKey: "updatedAt",
+    dateFormat: { relative: true },
+    header: "Updated",
+    kind: "date",
+  },
+]
+
 function delay(ms: number) {
   return new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms)
@@ -107,20 +126,7 @@ function DetailPanel() {
       {prompt ? (
         <>
           <h2 className="font-serif font-semibold text-xl leading-tight mb-1">{prompt.title}</h2>
-          <dl className="grid grid-cols-1 gap-y-2 md:gap-y-3 text-black/75 text-base mb-2">
-            <div className="flex gap-4">
-              <dt className="min-w-[60px] text-xs font-semibold text-black/60">Status</dt>
-              <dd>{prompt.status}</dd>
-            </div>
-            <div className="flex gap-4">
-              <dt className="min-w-[60px] text-xs font-semibold text-black/60">Owner</dt>
-              <dd>{prompt.owner}</dd>
-            </div>
-            <div className="flex gap-4">
-              <dt className="min-w-[60px] text-xs font-semibold text-black/60">Updated</dt>
-              <dd>{new Date(prompt.updatedAt).toLocaleString()}</dd>
-            </div>
-          </dl>
+          <DatoolInfoTable columns={PROMPT_COLUMNS} query="promptDetail" />
           <p className="text-black/80">{prompt.content}</p>
         </>
       ) : (
@@ -135,7 +141,7 @@ function DetailPanel() {
 function DatoolDemo() {
   const [prompts, setPrompts] = React.useState<Prompt[]>(INITIAL_PROMPTS)
   const [revision, setRevision] = React.useState(0)
-  const datool = useDatool({
+  const datool = useDatool<DatoolDemoState>({
     defaultQuery: "prompts",
     initialState: INITIAL_STATE,
   })
@@ -290,12 +296,7 @@ function DatoolDemo() {
               <ErrorMessage />
 
             <DatoolDataTable
-              columns={[
-                { accessorKey: "title", header: "Title" },
-                { accessorKey: "status", header: "Status", kind: "enum" },
-                { accessorKey: "owner", header: "Owner" },
-                { accessorKey: "updatedAt", header: "Updated", kind: "date" },
-              ]}
+              columns={PROMPT_COLUMNS}
             />
           </ResizablePanel>
           <ResizableHandle />

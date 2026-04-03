@@ -358,12 +358,13 @@ export function getSearchSuggestions<Row>(
       return inputSuggestion
     }
 
+    const fieldId = token.field.id
     const valueSuggestions = (token.field.options ?? [])
       .filter((option) => option.toLowerCase().includes(selectedValue))
       .map<SearchSuggestion>((option) => ({
         group: "values",
-        id: `${token.field.id}-${option}`,
-        insertText: `${token.field.id}:${quoteSearchTokenValue(option)}`,
+        id: `${fieldId}-${option}`,
+        insertText: `${fieldId}:${quoteSearchTokenValue(option)}`,
         label: option,
         mode: "replace-token",
       }))

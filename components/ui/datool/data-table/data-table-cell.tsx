@@ -1,25 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
 import { flexRender, type Cell } from "@tanstack/react-table"
-import { Check, Copy, Minus } from "lucide-react"
+import { Check, Minus } from "lucide-react"
 import * as React from "react"
 
-import { EnumBadge } from "./enum-badge"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { renderDataCellValue } from "./data-cell"
 import { cn } from "@/lib/utils"
-import {
-  formatDateValue,
-  formatUtcDateValue,
-  parseDateValue,
-} from "./lib/date-format"
 import type {
-  DataTableColumnKind,
   DataTableColumnMeta,
   DatoolDateFormat,
-  DatoolEnumColorMap,
 } from "./types"
 
 function getAlignmentClassName(align: DataTableColumnMeta["align"] = "left") {
@@ -31,151 +19,6 @@ function getAlignmentClassName(align: DataTableColumnMeta["align"] = "left") {
     default:
       return "justify-start text-left"
   }
-}
-
-function DateCellValue({
-  value,
-  dateFormat,
-}: {
-  value: string | number | Date
-  dateFormat?: DatoolDateFormat
-}) {
-  const [copied, setCopied] = React.useState(false)
-  const resetCopiedTimeoutRef = React.useRef<number | null>(null)
-  const date = parseDateValue(value)
-
-  React.useEffect(() => {
-    return () => {
-      if (resetCopiedTimeoutRef.current !== null) {
-        window.clearTimeout(resetCopiedTimeoutRef.current)
-      }
-    }
-  }, [])
-
-  if (!date) {
-    return String(value)
-  }
-
-  const displayValue = formatDateValue(date, dateFormat)
-  const tooltipValue = formatUtcDateValue(date)
-
-  const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation()
-
-    try {
-      await navigator.clipboard.writeText(displayValue)
-      setCopied(true)
-
-      if (resetCopiedTimeoutRef.current !== null) {
-        window.clearTimeout(resetCopiedTimeoutRef.current)
-      }
-
-      resetCopiedTimeoutRef.current = window.setTimeout(() => {
-        setCopied(false)
-        resetCopiedTimeoutRef.current = null
-      }, 1500)
-    } catch {
-      setCopied(false)
-    }
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          aria-label={`Copy ${displayValue}`}
-          className="group/date gap-1 rounded-sm hover:text-foreground focus-visible:ring-ring/50 inline-flex max-w-full items-center text-left text-inherit transition-colors focus-visible:ring-2 focus-visible:outline-none"
-          onClick={handleCopy}
-          type="button"
-        >
-          <span className="truncate">{displayValue}</span>
-          <span
-            aria-hidden="true"
-            className="opacity-0 transition-opacity group-hover/date:opacity-100 group-focus-visible/date:opacity-100"
-          >
-            {copied ? (
-              <Check className="size-3 text-primary" />
-            ) : (
-              <Copy className="size-3 text-muted-foreground" />
-            )}
-          </span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent className="font-mono" sideOffset={6}>
-        {tooltipValue}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
-  }).format(value)
-}
-
-function fallbackCellValue(
-  value: unknown,
-  kind?: DataTableColumnKind,
-  options?: {
-    dateFormat?: DatoolDateFormat
-    enumVariant?: "default" | "outline"
-    enumColors?: DatoolEnumColorMap
-    enumOptions?: string[]
-  }
-) {
-  if (value === null || value === undefined || value === "") {
-    return <span className="text-muted-foreground">-</span>
-  }
-
-  if (kind === "enum") {
-    return (
-      <EnumBadge
-        colors={options?.enumColors}
-        options={options?.enumOptions}
-        variant={options?.enumVariant}
-        value={String(value)}
-      />
-    )
-  }
-
-  if (kind === "boolean" || typeof value === "boolean") {
-    return (
-      <span
-        className={cn(
-          "min-w-16 px-2 py-1 font-medium inline-flex items-center justify-center rounded-full border text-[11px]",
-          value
-            ? "border-border bg-accent text-accent-foreground"
-            : "border-border bg-muted text-muted-foreground"
-        )}
-      >
-        {value ? "True" : "False"}
-      </span>
-    )
-  }
-
-  if (kind === "number" || typeof value === "number") {
-    return formatNumber(Number(value))
-  }
-
-  if (kind === "date" || value instanceof Date) {
-    return (
-      <DateCellValue
-        dateFormat={options?.dateFormat}
-        value={value as string | number | Date}
-      />
-    )
-  }
-
-  if (Array.isArray(value) || typeof value === "object") {
-    return (
-      <code className="rounded bg-muted px-1.5 py-1 font-mono text-muted-foreground text-[11px]">
-        {JSON.stringify(value)}
-      </code>
-    )
-  }
-
-  return String(value)
 }
 
 function renderHighlightedTextParts(value: string, terms: string[]) {
@@ -377,10 +220,7 @@ function areCellsEquivalent<TData>(
   }
 
   if (leftMeta.kind === "selection") {
-    return (
-      left.row.getCanSelect() === right.row.getCanSelect() &&
-      left.row.getIsSelected() === right.row.getIsSelected()
-    )
+    return false
   }
 
   if (left === right) {
@@ -429,11 +269,13 @@ function DataTableBodyCellInner<TData>({
   const content = shouldHighlight
     ? renderHighlightedText(rawValue, highlightTerms, rendered)
     : (rendered ??
-      fallbackCellValue(rawValue, meta.kind, {
+      renderDataCellValue({
         dateFormat: resolvedDateFormat,
         enumColors: meta.enumColors,
         enumOptions: meta.enumOptions,
         enumVariant: meta.enumVariant,
+        type: meta.kind,
+        value: rawValue,
       }))
 
   return (
@@ -487,4 +329,4 @@ const MemoizedDataTableBodyCell = React.memo(
 export const DataTableBodyCell =
   MemoizedDataTableBodyCell as typeof DataTableBodyCellInner
 
-export { fallbackCellValue }
+export { renderDataCellValue as fallbackCellValue }

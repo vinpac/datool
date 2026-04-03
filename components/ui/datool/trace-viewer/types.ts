@@ -4,6 +4,7 @@ export type MemoCacheKey = Record<string, never>;
 export type MemoCache = Map<string, MemoCacheKey>;
 
 export interface Span {
+  [key: string]: unknown;
   name: string;
   label?: string;
   className?: string;

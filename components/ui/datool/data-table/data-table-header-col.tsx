@@ -67,10 +67,11 @@ export function DataTableHeaderCol<TData>({
     disabled: !reorderable,
     id: header.column.id,
   })
+  const columnSize = header.getSize()
   const style = React.useMemo(
     () => ({
-      maxWidth: header.getSize(),
-      minWidth: header.getSize(),
+      maxWidth: columnSize,
+      minWidth: columnSize,
       transform: transform
         ? CSS.Transform.toString({
             ...transform,
@@ -79,9 +80,9 @@ export function DataTableHeaderCol<TData>({
           })
         : undefined,
       transition,
-      width: header.getSize(),
+      width: columnSize,
     }),
-    [header, transform, transition]
+    [columnSize, transform, transition]
   )
 
   return (

@@ -1,5 +1,6 @@
 export { ClearButton, ErrorMessage, RefreshButton } from "./controls"
 export { DatoolDataTable } from "./data-table"
+export { DatoolInfoTable } from "./info-table"
 export { SearchBar } from "./search-bar"
 export { DatoolTraceViewer } from "./trace-viewer"
 export type { DatoolProviderProps } from "./provider"
@@ -22,3 +23,4 @@ export type {
   DatoolSliceApi,
   DatoolStateShape,
 } from "./types"
+export { QuerySettings } from "./query-settings"

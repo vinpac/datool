@@ -59,8 +59,8 @@ import { useDeferredValue } from "react"
 import {
   DataTableBodyCell,
   DataTableCheckbox,
-  fallbackCellValue,
 } from "./data-table-cell"
+import { renderDataCellValue } from "./data-cell"
 import { DataTableHeaderCol } from "./data-table-header-col"
 import {
   DataTableColIcon,
@@ -122,6 +122,7 @@ export type {
   DataTableRowActionScope,
   DataTableRowActionButtonConfig,
 } from "./types"
+export { DataCell, renderDataCellValue } from "./data-cell"
 
 const EMPTY_HIGHLIGHT_TERMS: string[] = []
 
@@ -614,11 +615,13 @@ function buildColumns<TData extends DataTableRow>(
       truncate: column.truncate ?? true,
     }
     const getDefaultCellContent = (value: unknown) =>
-      fallbackCellValue(value, kind, {
+      renderDataCellValue({
         dateFormat: column.dateFormat ?? dateFormat,
         enumColors: kind === "enum" ? column.enumColors : undefined,
         enumOptions: kind === "enum" ? column.enumOptions : undefined,
         enumVariant: kind === "enum" ? column.enumVariant : undefined,
+        type: kind,
+        value,
       })
 
     return {
@@ -2561,11 +2564,13 @@ function DataTableView<TData extends DataTableRow>({
                   | DataTableColumnMeta
                   | undefined
                 const groupingValue = groupingColumn
-                  ? fallbackCellValue(row.groupingValue, groupingMeta?.kind, {
+                  ? renderDataCellValue({
                       dateFormat: groupingMeta?.dateFormat ?? dateFormat,
                       enumColors: groupingMeta?.enumColors,
                       enumOptions: groupingMeta?.enumOptions,
                       enumVariant: groupingMeta?.enumVariant,
+                      type: groupingMeta?.kind,
+                      value: row.groupingValue,
                     })
                   : null
                 const hasVisibleGroupedCell = groupVisibleCells.some((cell) =>

@@ -101,7 +101,7 @@ function TraceViewerDemo() {
   )
 
   datool.useCollection({
-    getRowId: (row) => row.spanId,
+    getRowId: (row: Span) => row.spanId,
     getRows: (scenario) => scenario?.trace.spans ?? [],
     key: "trace",
     result: traceQuery,

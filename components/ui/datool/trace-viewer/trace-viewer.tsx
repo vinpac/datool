@@ -25,12 +25,13 @@ import {
 import { parseTrace } from "./util/tree"
 import { useStreamingSpans } from "./util/use-streaming-spans"
 
-interface TraceViewerProps {
+export interface TraceViewerProps {
   trace?: Trace
   className?: string
   scrollLock?: boolean
   height?: string | number
   withPanel?: boolean
+  filter?: string
   getQuickLinks?: GetQuickLinks
   highlightedSpans?: string[]
   /** Render all spans immediately (no progressive streaming). */

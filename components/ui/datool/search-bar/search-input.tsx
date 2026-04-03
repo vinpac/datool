@@ -374,7 +374,7 @@ export function DataTableSearchInput<Row extends Record<string, unknown>>({
 
             if (openRef.current && activeSuggestion) {
               applySuggestionRef.current(editor, activeSuggestion)
-            } else {
+            } else if (editor) {
               setCursor(getCursorOffset(editor))
             }
 

@@ -27,6 +27,7 @@ export type DatoolDataTableProps<
   rowClassName?: (row: TRow) => string | undefined
   rowHeight?: number
   rowStyle?: (row: TRow) => React.CSSProperties | undefined
+  showSelectionCheckbox?: boolean
 }
 
 function toActionContext<
@@ -85,6 +86,7 @@ export function DatoolDataTable<
   rowClassName,
   rowHeight = 48,
   rowStyle,
+  showSelectionCheckbox = true,
   ...props
 }: DatoolDataTableProps<TRow>) {
   const collection = useDatoolSearch<TData, TFilters, TState, TRow>(query)
@@ -145,10 +147,11 @@ export function DatoolDataTable<
       }
     })
   }, [collection])
-  const enableRowSelection = React.useMemo(
+  const hasSelectionActions = React.useMemo(
     () => rowActions.some((action) => action.scope === "selection"),
     [rowActions]
   )
+  const enableRowSelection = hasSelectionActions && showSelectionCheckbox
   const searchFields = React.useMemo(
     () =>
       buildTableSearchFields(

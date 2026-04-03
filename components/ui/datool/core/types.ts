@@ -21,15 +21,12 @@ export type DatoolActionButtonVariant =
 
 export type DatoolActionButtonSize =
   | "default"
-  | "xs"
   | "sm"
   | "lg"
   | "xl"
   | "icon"
-  | "icon-xs"
   | "icon-sm"
   | "icon-lg"
-  | "icon-xl"
 
 export type DatoolActionButtonConfig =
   | false

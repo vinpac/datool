@@ -29,6 +29,10 @@
           "type": "registry:component"
         },
         {
+          "path": "registry/data-table/components/data-table/data-cell.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "registry/data-table/components/data-table/data-table-cell.tsx",
           "type": "registry:component"
         },
@@ -366,7 +370,15 @@
         "@tiptap/extension-placeholder",
         "@tiptap/extension-text",
         "@tiptap/react",
+        "class-variance-authority",
         "lucide-react"
+      ],
+      "registryDependencies": [
+        "button",
+        "dropdown-menu",
+        "data-table",
+        "trace-viewer",
+        "search-bar"
       ],
       "files": [
         {
@@ -386,11 +398,27 @@
           "type": "registry:component"
         },
         {
+          "path": "registry/react-query-datool/components/datool/info-table.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/react-query-datool/components/datool/query-settings.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "registry/react-query-datool/components/datool/search-bar.tsx",
           "type": "registry:component"
         },
         {
+          "path": "registry/react-query-datool/components/datool/trace-viewer.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "registry/react-query-datool/components/datool/types.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/react-query-datool/components/info-table/info-table.tsx",
           "type": "registry:component"
         },
         {
