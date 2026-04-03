@@ -376,9 +376,9 @@
       "registryDependencies": [
         "button",
         "dropdown-menu",
-        "data-table",
-        "trace-viewer",
-        "search-bar"
+        "https://datool-psi.vercel.app/r/data-table.json",
+        "https://datool-psi.vercel.app/r/trace-viewer.json",
+        "https://datool-psi.vercel.app/r/search-bar.json"
       ],
       "files": [
         {
