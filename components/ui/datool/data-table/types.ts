@@ -284,10 +284,13 @@ export type DataTableColumnKind = DatoolColumnKind | "selection"
 
 export type DataTableAlign = "left" | "center" | "right"
 
+export type DataTableSelectionMode = "cell" | "row"
+
 export type DataTableColumnMeta = {
   align?: DataTableAlign
   cellClassName?: string
   dateFormat?: DatoolDateFormat
+  editable?: boolean
   enumColors?: DatoolEnumColorMap
   enumOptions?: string[]
   enumVariant?: "default" | "outline"
@@ -299,6 +302,24 @@ export type DataTableColumnMeta = {
 }
 
 export type DataTableRow = Record<string, unknown>
+
+export type DataTableCellEditorProps<TData extends DataTableRow> = {
+  column: DataTableColumnConfig<TData>
+  onBlur: () => void
+  onChange: (value: string) => void
+  onKeyDown: (
+    event:
+      | React.KeyboardEvent<HTMLInputElement>
+      | React.KeyboardEvent<HTMLSelectElement>
+      | React.KeyboardEvent<HTMLTextAreaElement>
+  ) => void
+  pending: boolean
+  row: TData
+  value: string
+}
+
+export type DataTableCellEditorComponent<TData extends DataTableRow> =
+  React.ComponentType<DataTableCellEditorProps<TData>>
 
 export type DataTableRowActionScope = "row" | "selection"
 
@@ -346,6 +367,12 @@ export type DataTableColumnConfig<TData extends DataTableRow> = {
   }) => React.ReactNode
   cellClassName?: string
   dateFormat?: DatoolDateFormat
+  editable?:
+    | boolean
+    | ((args: {
+        row: TData
+        value: unknown
+      }) => boolean)
   enableFiltering?: boolean
   enableGrouping?: boolean
   enableHiding?: boolean
@@ -370,6 +397,9 @@ export type DataTableColumnConfig<TData extends DataTableRow> = {
 export type DataTableProps<TData extends DataTableRow> = {
   autoScrollToBottom?: boolean
   autoScrollToBottomThreshold?: number
+  cellEditors?: Partial<
+    Record<DataTableColumnKind, DataTableCellEditorComponent<TData>>
+  >
   columnFilters?: ColumnFiltersState
   columnSizing?: ColumnSizingState
   columnVisibility?: VisibilityState
@@ -386,6 +416,19 @@ export type DataTableProps<TData extends DataTableRow> = {
   height?: React.CSSProperties["height"]
   highlightQuery?: string
   id: string
+  onUpdate?: (
+    changes: Array<{
+      data: Record<string, string>
+      row: TData
+      rowId: string
+    }>
+  ) => Promise<
+    Array<{
+      data: Partial<TData>
+      error?: string
+      rowId: string
+    }>
+  >
   onColumnFiltersChange?: (value: ColumnFiltersState) => void
   onColumnSizingChange?: (value: ColumnSizingState) => void
   onColumnVisibilityChange?: (value: VisibilityState) => void
@@ -396,6 +439,7 @@ export type DataTableProps<TData extends DataTableRow> = {
   rowClassName?: (row: TData) => string | undefined
   rowHeight?: number
   rowStyle?: (row: TData) => React.CSSProperties | undefined
+  selection?: DataTableSelectionMode
   statePersistence?: "localStorage" | "none" | "url"
 }
 

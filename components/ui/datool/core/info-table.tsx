@@ -13,7 +13,10 @@ export type DatoolInfoTableProps<
   TData extends Record<string, unknown> = Record<string, unknown>,
   TFilters extends Record<string, unknown> = Record<string, unknown>,
   TState extends DatoolStateShape = DatoolStateShape,
-> = Pick<InfoTableProps<TData>, "className" | "columns" | "size"> & {
+> = Pick<
+    InfoTableProps<TData>,
+    "className" | "columns" | "headers" | "size" | "variant"
+  > & {
   query?: string
 }
 
@@ -28,8 +31,10 @@ export function DatoolInfoTable<
 >({
   className,
   columns,
+  headers,
   query,
   size,
+  variant,
 }: DatoolInfoTableProps<TData, TFilters, TState>) {
   const datoolQuery = useDatoolQuery<TData | null, TFilters, TState>(query)
   const data = datoolQuery.result.data
@@ -43,7 +48,9 @@ export function DatoolInfoTable<
       className={className}
       columns={columns}
       data={data as TData}
+      headers={headers}
       size={size}
+      variant={variant}
     />
   )
 }

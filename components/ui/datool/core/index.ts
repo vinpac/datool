@@ -11,6 +11,7 @@ export {
   useDatoolCollectionQuery,
   useDatoolSearch,
   useDatoolQuery,
+  useDatoolViewerSettings,
 } from "./provider"
 export type {
   DatoolCollectionQueryDefinition,
@@ -23,4 +24,9 @@ export type {
   DatoolSliceApi,
   DatoolStateShape,
 } from "./types"
+export type {
+  DatoolViewerSettings,
+  DatoolViewerSettingsColumn,
+  DatoolViewerSettingsExportAction,
+} from "./provider"
 export { QuerySettings } from "./query-settings"

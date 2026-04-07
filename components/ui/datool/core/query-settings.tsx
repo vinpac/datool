@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { useDatoolViewerSettings } from "./provider"
 
 type ViewerSettingsColumn = {
   id: string
@@ -81,17 +82,26 @@ const THEME_OPTIONS: Array<{
 ]
 
 export function QuerySettings({
-  columns = [],
-  groupedColumnIds = [],
+  columns: columnsProp,
+  groupedColumnIds: groupedColumnIdsProp,
   isDisabled = false,
-  exportActions = [],
-  onClearGrouping,
-  onToggleGrouping,
-  onToggleColumn,
+  exportActions: exportActionsProp,
+  onClearGrouping: onClearGroupingProp,
+  onToggleGrouping: onToggleGroupingProp,
+  onToggleColumn: onToggleColumnProp,
   className,
   theme,
-setTheme
+  setTheme,
 }: QuerySettingsProps) {
+  const viewerSettings = useDatoolViewerSettings()
+
+  const columns = columnsProp ?? (viewerSettings?.columns as ViewerSettingsColumn[]) ?? []
+  const groupedColumnIds = groupedColumnIdsProp ?? viewerSettings?.groupedColumnIds ?? []
+  const exportActions = exportActionsProp ?? viewerSettings?.exportActions ?? []
+  const onClearGrouping = onClearGroupingProp ?? viewerSettings?.onClearGrouping
+  const onToggleGrouping = onToggleGroupingProp ?? viewerSettings?.onToggleGrouping
+  const onToggleColumn = onToggleColumnProp ?? viewerSettings?.onToggleColumn
+
   const canManageColumns = columns.length > 0 && typeof onToggleColumn === "function"
   const canManageGrouping =
     columns.length > 0 &&

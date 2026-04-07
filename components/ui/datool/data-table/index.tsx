@@ -23,7 +23,7 @@ import {
   getFilteredRowModel,
   getSortedRowModel,
   useReactTable,
-  type AggregationFnOption,
+  type Cell,
   type ColumnDef,
   type ColumnFiltersState,
   type ColumnOrderState,
@@ -45,13 +45,7 @@ import {
   ChevronRight,
   CircleAlert,
   Copy,
-  EyeOff,
-  LayoutGrid,
   LoaderCircle,
-  Search,
-  SlidersHorizontal,
-  Sparkles,
-  X,
 } from "lucide-react"
 import * as React from "react"
 import { useDeferredValue } from "react"
@@ -60,13 +54,23 @@ import {
   DataTableBodyCell,
   DataTableCheckbox,
 } from "./data-table-cell"
+import { resolveDataTableCellEditor } from "./cell-editors"
 import { renderDataCellValue } from "./data-cell"
-import { DataTableHeaderCol } from "./data-table-header-col"
 import {
-  DataTableColIcon,
-  inferDataTableColumnKind,
-} from "./data-table-col-icon"
-import { formatDuration } from "./lib/utils"
+  addRangeToSelectionState,
+  createSelectionState,
+  getSelectedRowIds,
+  isCellInSelectionRanges,
+  normalizeSelectionState,
+  removeRangeFromSelectionState,
+  type DataTableSelectionCell,
+  type DataTableSelectionRange,
+  type DataTableSelectionState,
+  type NormalizedSelectionRange,
+} from "./selection"
+import { DataTableHeaderCol } from "./data-table-header-col"
+import { inferDataTableColumnKind } from "./data-table-col-icon"
+import { downloadFile, formatDuration } from "./lib/utils"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -102,16 +106,18 @@ import type {
   DataTableRow,
   DataTableRowAction,
   DataTableRowActionContext,
-  DataTableRowActionScope,
   DataTableRowActionButtonConfig,
+  DataTableSelectionMode,
   DatoolDateFormat,
-  DatoolEnumColorMap,
 } from "./types"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { createPortal } from "react-dom"
 
 export type {
   DataTableAlign,
+  DataTableCellEditorComponent,
+  DataTableCellEditorProps,
   DataTableColumnConfig,
   DataTableColumnKind,
   DataTableColumnMeta,
@@ -121,8 +127,41 @@ export type {
   DataTableRowActionContext,
   DataTableRowActionScope,
   DataTableRowActionButtonConfig,
+  DataTableSelectionMode,
 } from "./types"
 export { DataCell, renderDataCellValue } from "./data-cell"
+export {
+  BooleanCellEditor,
+  EnumCellEditor,
+  TextCellEditor,
+} from "./cell-editors"
+
+export type DataTableViewerSettingsColumn = {
+  id: string
+  kind?: DataTableColumnKind
+  label: string
+  visible: boolean
+}
+
+export type DataTableViewerSettingsExportAction = {
+  id: string
+  label: string
+  disabled?: boolean
+  onSelect: () => void
+}
+
+export type DataTableViewerSettings = {
+  columns: DataTableViewerSettingsColumn[]
+  exportActions: DataTableViewerSettingsExportAction[]
+  groupedColumnIds: string[]
+  onClearGrouping: () => void
+  onToggleGrouping: (columnId: string, grouped: boolean) => void
+  onToggleColumn: (columnId: string, visible: boolean) => void
+}
+
+export const DataTableViewerSettingsContext = React.createContext<
+  ((settings: DataTableViewerSettings | null) => void) | null
+>(null)
 
 const EMPTY_HIGHLIGHT_TERMS: string[] = []
 
@@ -543,6 +582,205 @@ function resolveColumnId<TData extends DataTableRow>(
   )
 }
 
+type SelectionOverlayBox = {
+  height: number
+  key: string
+  left: number
+  top: number
+  width: number
+}
+
+function isSelectableColumnId(columnId: string) {
+  return columnId !== "__select" && columnId !== "__actions"
+}
+
+function isEditableColumnKind(kind: DataTableColumnKind | undefined) {
+  return kind !== "json" && kind !== "selection"
+}
+
+function resolveEditable<TData extends DataTableRow>(
+  column: DataTableColumnConfig<TData>,
+  row: TData,
+  value: unknown
+) {
+  if (!isEditableColumnKind(column.kind)) {
+    return false
+  }
+
+  if (typeof column.editable === "function") {
+    return column.editable({
+      row,
+      value,
+    })
+  }
+
+  return column.editable ?? false
+}
+
+function stringifyEditableValue(value: unknown) {
+  if (value === null || value === undefined) {
+    return ""
+  }
+
+  if (typeof value === "string") {
+    return value
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+
+  return JSON.stringify(value)
+}
+
+function mergeRowData<TData extends DataTableRow>(
+  row: TData,
+  patch: Partial<TData>
+): TData {
+  return {
+    ...row,
+    ...patch,
+  }
+}
+
+function buildSelectionOverlayBoxes({
+  columnLefts,
+  columnWidths,
+  normalizedRanges,
+  rowStarts,
+  rowStops,
+  visibleRowIndices,
+}: {
+  columnLefts: number[]
+  columnWidths: number[]
+  normalizedRanges: NormalizedSelectionRange[]
+  rowStarts: number[]
+  rowStops: number[]
+  visibleRowIndices: number[]
+}) {
+  const boxes: SelectionOverlayBox[] = []
+
+  for (let rangeIndex = 0; rangeIndex < normalizedRanges.length; rangeIndex += 1) {
+    const range = normalizedRanges[rangeIndex]!
+    const left = columnLefts[range.startColumnIndex]
+    const right =
+      columnLefts[range.endColumnIndex] + columnWidths[range.endColumnIndex]
+
+    if (left === undefined || right === undefined) {
+      continue
+    }
+
+    let segmentStartRowIndex: number | null = null
+    let previousRowIndex: number | null = null
+
+    const pushSegment = (segmentEndRowIndex: number) => {
+      if (segmentStartRowIndex === null) {
+        return
+      }
+
+      const top = rowStarts[segmentStartRowIndex]
+      const bottom = rowStops[segmentEndRowIndex]
+
+      if (top === undefined || bottom === undefined) {
+        return
+      }
+
+      boxes.push({
+        height: Math.max(bottom - top, 0),
+        key: `${rangeIndex}:${segmentStartRowIndex}:${segmentEndRowIndex}`,
+        left,
+        top,
+        width: Math.max(right - left, 0),
+      })
+    }
+
+    for (const rowIndex of visibleRowIndices) {
+      const withinRange =
+        rowIndex >= range.startRowIndex && rowIndex <= range.endRowIndex
+
+      if (!withinRange) {
+        if (segmentStartRowIndex !== null && previousRowIndex !== null) {
+          pushSegment(previousRowIndex)
+          segmentStartRowIndex = null
+        }
+
+        previousRowIndex = rowIndex
+        continue
+      }
+
+      if (
+        segmentStartRowIndex === null ||
+        previousRowIndex === null ||
+        rowIndex !== previousRowIndex + 1
+      ) {
+        if (segmentStartRowIndex !== null && previousRowIndex !== null) {
+          pushSegment(previousRowIndex)
+        }
+
+        segmentStartRowIndex = rowIndex
+      }
+
+      previousRowIndex = rowIndex
+    }
+
+    if (segmentStartRowIndex !== null && previousRowIndex !== null) {
+      pushSegment(previousRowIndex)
+    }
+  }
+
+  return boxes
+}
+
+function escapeCsvValue(value: unknown): string {
+  if (value == null) return ""
+  const str = typeof value === "object" ? JSON.stringify(value) : String(value)
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
+}
+
+function exportTableData<TData extends DataTableRow>(
+  table: ReturnType<typeof useReactTable<TData>>,
+  tableId: string,
+  format: "csv" | "md"
+) {
+  const visibleCols = table
+    .getVisibleLeafColumns()
+    .filter((c) => c.id !== "__selection" && c.id !== "__actions")
+  const filteredRows = table.getFilteredRowModel().rows
+  const headers = visibleCols.map((c) =>
+    typeof c.columnDef.header === "string" ? c.columnDef.header : c.id
+  )
+
+  if (format === "csv") {
+    const headerLine = headers.map(escapeCsvValue).join(",")
+    const bodyLines = filteredRows.map((row) =>
+      visibleCols.map((c) => escapeCsvValue(row.getValue(c.id))).join(",")
+    )
+    downloadFile(`${tableId}.csv`, [headerLine, ...bodyLines].join("\n"), "text/csv")
+  } else {
+    const headerLine = `| ${headers.join(" | ")} |`
+    const separatorLine = `| ${headers.map(() => "---").join(" | ")} |`
+    const bodyLines = filteredRows.map(
+      (row) =>
+        `| ${visibleCols.map((c) => {
+          const val = row.getValue(c.id)
+          return val == null ? "" : String(val).replace(/\|/g, "\\|")
+        }).join(" | ")} |`
+    )
+    downloadFile(
+      `${tableId}.md`,
+      [headerLine, separatorLine, ...bodyLines].join("\n"),
+      "text/markdown"
+    )
+  }
+}
+
 function isColumnStickyLeft(meta: DataTableColumnMeta | undefined) {
   return meta?.sticky === "left"
 }
@@ -577,7 +815,14 @@ function buildColumns<TData extends DataTableRow>(
   dateFormat?: DatoolDateFormat,
   showRowSelectionColumn?: boolean,
   showRowActionButtonsColumn?: boolean,
-  rowActionsColumnSize?: number
+  rowActionsColumnSize?: number,
+  rowSelectionColumnState?: {
+    getAllSelected: () => boolean
+    getIsRowSelected: (rowId: string) => boolean
+    getSomeSelected: () => boolean
+    onToggleAll: (checked: boolean) => void
+    onToggleRow: (rowId: string, checked: boolean) => void
+  }
 ) {
   const inferredColumns: DataTableColumnConfig<TData>[] = (
     Object.keys(data[0] ?? {}) as Array<Extract<keyof TData, string>>
@@ -605,6 +850,8 @@ function buildColumns<TData extends DataTableRow>(
       align: column.align ?? inferAlignment(kind),
       cellClassName: column.cellClassName,
       dateFormat: kind === "date" ? column.dateFormat : undefined,
+      editable:
+        typeof column.editable === "boolean" ? column.editable : undefined,
       enumColors: kind === "enum" ? column.enumColors : undefined,
       enumOptions: kind === "enum" ? column.enumOptions : undefined,
       enumVariant: kind === "enum" ? column.enumVariant : undefined,
@@ -694,11 +941,13 @@ function buildColumns<TData extends DataTableRow>(
     {
       cell: ({ row }) => (
         <div className="flex items-center justify-center">
-          {row.getCanSelect() ? (
+          {!row.getIsGrouped() ? (
             <DataTableCheckbox
               ariaLabel={`Select row ${row.index + 1}`}
-              checked={row.getIsSelected()}
-              onCheckedChange={(checked) => row.toggleSelected(checked)}
+              checked={rowSelectionColumnState?.getIsRowSelected(row.id) ?? false}
+              onCheckedChange={(checked) =>
+                rowSelectionColumnState?.onToggleRow(row.id, checked)
+              }
             />
           ) : null}
         </div>
@@ -708,15 +957,13 @@ function buildColumns<TData extends DataTableRow>(
       enableHiding: false,
       enableResizing: false,
       enableSorting: false,
-      header: ({ table }) => (
+      header: () => (
         <div className="flex items-center justify-center">
           <DataTableCheckbox
             ariaLabel="Select all visible rows"
-            checked={table.getIsAllPageRowsSelected()}
-            indeterminate={table.getIsSomePageRowsSelected()}
-            onCheckedChange={(checked) =>
-              table.toggleAllPageRowsSelected(checked)
-            }
+            checked={rowSelectionColumnState?.getAllSelected() ?? false}
+            indeterminate={rowSelectionColumnState?.getSomeSelected() ?? false}
+            onCheckedChange={(checked) => rowSelectionColumnState?.onToggleAll(checked)}
           />
         </div>
       ),
@@ -826,9 +1073,10 @@ function shouldIgnoreSelectionShortcutTarget(target: EventTarget | null) {
 function resolveRowActionRows<TData extends DataTableRow>(
   action: DataTableRowAction<TData>,
   row: Row<TData>,
+  selectedRowIds: Set<string>,
   selectedRows: Row<TData>[]
 ) {
-  if (action.scope === "selection" && row.getIsSelected()) {
+  if (action.scope === "selection" && selectedRowIds.has(row.id)) {
     return selectedRows.length > 0
       ? selectedRows.map((selectedRow) => selectedRow.original)
       : [row.original]
@@ -840,9 +1088,10 @@ function resolveRowActionRows<TData extends DataTableRow>(
 function resolveRowActionRowIds<TData extends DataTableRow>(
   action: DataTableRowAction<TData>,
   row: Row<TData>,
+  selectedRowIds: Set<string>,
   selectedRows: Row<TData>[]
 ) {
-  if (action.scope === "selection" && row.getIsSelected()) {
+  if (action.scope === "selection" && selectedRowIds.has(row.id)) {
     return selectedRows.length > 0
       ? selectedRows.map((selectedRow) => selectedRow.id)
       : [row.id]
@@ -854,11 +1103,17 @@ function resolveRowActionRowIds<TData extends DataTableRow>(
 function buildRowActionContext<TData extends DataTableRow>(
   action: DataTableRowAction<TData>,
   row: Row<TData>,
+  selectedRowIds: Set<string>,
   selectedRows: Row<TData>[]
 ) {
   return {
-    actionRowIds: resolveRowActionRowIds(action, row, selectedRows),
-    actionRows: resolveRowActionRows(action, row, selectedRows),
+    actionRowIds: resolveRowActionRowIds(
+      action,
+      row,
+      selectedRowIds,
+      selectedRows
+    ),
+    actionRows: resolveRowActionRows(action, row, selectedRowIds, selectedRows),
     anchorRow: row.original,
     anchorRowId: row.id,
     selectedRowIds: selectedRows.map((selectedRow) => selectedRow.id),
@@ -923,20 +1178,6 @@ function getRowActionResultMessage(result: unknown) {
   return undefined
 }
 
-function hasSelectionScopedAction<TData extends DataTableRow>(
-  actions: DataTableRowAction<TData>[]
-): boolean {
-  return actions.some((action) => {
-    if (action.scope === "selection") {
-      return true
-    }
-
-    const items = Array.isArray(action.items) ? action.items : undefined
-
-    return items ? hasSelectionScopedAction(items) : false
-  })
-}
-
 function countStaticButtonActions<TData extends DataTableRow>(
   actions: DataTableRowAction<TData>[]
 ): number {
@@ -980,27 +1221,35 @@ function resolveRowActionItems<TData extends DataTableRow>(
   action: DataTableRowAction<TData>,
   context: DataTableRowActionContext<TData>,
   row: Row<TData>,
+  selectedRowIds: Set<string>,
   selectedRows: Row<TData>[]
 ) {
   const items =
     typeof action.items === "function" ? action.items(context) : action.items
 
-  return resolveVisibleRowActions(items ?? [], row, selectedRows)
+  return resolveVisibleRowActions(items ?? [], row, selectedRowIds, selectedRows)
 }
 
 function resolveVisibleRowActions<TData extends DataTableRow>(
   actions: DataTableRowAction<TData>[],
   row: Row<TData>,
+  selectedRowIds: Set<string>,
   selectedRows: Row<TData>[]
 ): ResolvedRowAction<TData>[] {
   return actions.flatMap((action) => {
-    const context = buildRowActionContext(action, row, selectedRows)
+    const context = buildRowActionContext(action, row, selectedRowIds, selectedRows)
 
     if (resolveRowActionState(action.hidden, context)) {
       return []
     }
 
-    const items = resolveRowActionItems(action, context, row, selectedRows)
+    const items = resolveRowActionItems(
+      action,
+      context,
+      row,
+      selectedRowIds,
+      selectedRows
+    )
 
     if (action.items && items.length === 0) {
       return []
@@ -1376,6 +1625,7 @@ const RowActionButtonGroup =
 function DataTableView<TData extends DataTableRow>({
   autoScrollToBottom = false,
   autoScrollToBottomThreshold = 96,
+  cellEditors,
   columnFilters: controlledColumnFilters,
   columnSizing: controlledColumnSizing,
   columnVisibility: controlledColumnVisibility,
@@ -1385,23 +1635,23 @@ function DataTableView<TData extends DataTableRow>({
   defaultSorting,
   edgeHorizontalPadding = "16px",
   enableRowSelection = false,
-  filterPlaceholder = "Search across visible columns",
   globalFilter,
   grouping: controlledGrouping,
   getRowId,
-  height = 620,
+  height = '100%',
   highlightQuery = "",
   id,
+  onUpdate,
   onColumnFiltersChange,
   onColumnSizingChange,
   onColumnVisibilityChange,
-  onGlobalFilterChange,
   onGroupingChange,
   resolveColumnHighlightTerms,
   rowActions,
   rowClassName,
   rowStyle,
   rowHeight = 48,
+  selection = enableRowSelection ? "row" : "cell",
   statePersistence = "localStorage",
 }: DataTableProps<TData>) {
   const context = useOptionalDataTableContext<TData>()
@@ -1421,14 +1671,38 @@ function DataTableView<TData extends DataTableRow>({
   const [grouping, setGrouping] = React.useState<GroupingState>([])
   const [expanded, setExpanded] = React.useState<ExpandedState>({})
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+  const [selectionState, setSelectionState] =
+    React.useState<DataTableSelectionState | null>(null)
+  const [editingCell, setEditingCell] = React.useState<{
+    columnId: string
+    draft: string
+    rowId: string
+  } | null>(null)
+  const [pendingCellKeys, setPendingCellKeys] = React.useState<
+    Record<string, boolean>
+  >({})
+  const [localRowPatches, setLocalRowPatches] = React.useState<
+    Record<string, Partial<TData>>
+  >({})
   const [rowActionStatuses, setRowActionStatuses] = React.useState<
     Record<string, RowActionStatus>
   >({})
   const rowActionStatusTimersRef = React.useRef<Record<string, number>>({})
-  const selectionAnchorIdRef = React.useRef<string | null>(null)
+  const editingCellRef = React.useRef<{
+    columnId: string
+    draft: string
+    rowId: string
+  } | null>(null)
+  const selectionStateRef = React.useRef<DataTableSelectionState | null>(null)
+  const pendingAdditiveToggleCellRef =
+    React.useRef<DataTableSelectionCell | null>(null)
+  const didDragSelectionRef = React.useRef(false)
   const dragSelectionRef = React.useRef<{
-    anchorId: string
-    baseSelection: RowSelectionState
+    activeRangeIndex: number
+    additive: boolean
+    anchor: DataTableSelectionCell
+    baseSelection: DataTableSelectionState | null
+    extend: boolean
   } | null>(null)
   const dragPointerRef = React.useRef<{
     clientX: number
@@ -1460,18 +1734,21 @@ function DataTableView<TData extends DataTableRow>({
     () => resolvedGrouping.join("\u001f"),
     [resolvedGrouping]
   )
-  const hasSelectionActions = rowActions
-    ? hasSelectionScopedAction(rowActions)
-    : false
   const rowActionButtonCount = rowActions
     ? countStaticButtonActions(rowActions)
     : 0
-  const canSelectRows = enableRowSelection || hasSelectionActions
-  const showRowSelectionColumn = enableRowSelection
+  const selectionMode: DataTableSelectionMode = selection
+  const isRowSelectionMode = selectionMode === "row"
+  const showRowSelectionColumn = enableRowSelection && isRowSelectionMode
   const showRowActionButtonsColumn = rowActionButtonCount > 0
   const rowActionsColumnSize = React.useMemo(
     () => Math.max(160, Math.min(320, rowActionButtonCount * 96)),
     [rowActionButtonCount]
+  )
+  const resolveRowId = React.useCallback(
+    (row: TData, index: number) =>
+      getRowId ? getRowId(row, index) : String(index),
+    [getRowId]
   )
   const columnsWithEnumOptions = React.useMemo(() => {
     if (!columns || columns.length === 0) {
@@ -1501,7 +1778,141 @@ function DataTableView<TData extends DataTableRow>({
       } satisfies DataTableColumnConfig<TData>
     })
   }, [columns, context?.searchFields])
-  const columnBuildRows = useStableLeadingRows(data, 25, columnsWithEnumOptions)
+  const displayData = React.useMemo(
+    () =>
+      data.map((row, index) => {
+        const rowPatch = localRowPatches[resolveRowId(row, index)]
+
+        return rowPatch ? mergeRowData(row, rowPatch) : row
+      }),
+    [data, localRowPatches, resolveRowId]
+  )
+  const tableRef = React.useRef<ReturnType<typeof useReactTable<TData>> | null>(
+    null
+  )
+  const rowSelectionColumnState = React.useMemo(
+    () =>
+      showRowSelectionColumn
+        ? {
+            getAllSelected: () => {
+              const visibleRows =
+                tableRef.current?.getRowModel().rows.filter(
+                  (row) => !row.getIsGrouped()
+                ) ?? []
+
+              return (
+                visibleRows.length > 0 &&
+                visibleRows.every((row) => rowSelection[row.id] === true)
+              )
+            },
+            getIsRowSelected: (rowId: string) => rowSelection[rowId] === true,
+            getSomeSelected: () => {
+              const visibleRows =
+                tableRef.current?.getRowModel().rows.filter(
+                  (row) => !row.getIsGrouped()
+                ) ?? []
+
+              const selectedCount = visibleRows.filter(
+                (row) => rowSelection[row.id] === true
+              ).length
+
+              return selectedCount > 0 && selectedCount < visibleRows.length
+            },
+            onToggleAll: (checked: boolean) => {
+              const visibleRows =
+                tableRef.current?.getRowModel().rows.filter(
+                  (row) => !row.getIsGrouped()
+                ) ?? []
+
+              if (!checked || visibleRows.length === 0) {
+                setSelectionState(null)
+                return
+              }
+
+              setSelectionState({
+                activeRangeIndex: Math.max(visibleRows.length - 1, 0),
+                ranges: visibleRows.map((row) => ({
+                  anchor: {
+                    columnId: "__row__",
+                    rowId: row.id,
+                  },
+                  focus: {
+                    columnId: "__row__",
+                    rowId: row.id,
+                  },
+                })),
+              })
+            },
+            onToggleRow: (rowId: string, checked: boolean) => {
+              setSelectionState((current) => {
+                const visibleRows =
+                  tableRef.current?.getRowModel().rows.filter(
+                    (row) => !row.getIsGrouped()
+                  ) ?? []
+                const visibleRowIds = visibleRows.map((row) => row.id)
+                const visibleRowIndexById = new Map<string, number>(
+                  visibleRowIds.map((candidateRowId, index) => [
+                    candidateRowId,
+                    index,
+                  ])
+                )
+
+                if (!checked) {
+                  if (!current) {
+                    return null
+                  }
+
+                  const nextRanges = current.ranges.filter(
+                    (range) =>
+                      range.anchor.rowId !== rowId && range.focus.rowId !== rowId
+                  )
+
+                  return nextRanges.length > 0
+                    ? {
+                        activeRangeIndex: Math.min(
+                          current.activeRangeIndex,
+                          nextRanges.length - 1
+                        ),
+                        ranges: nextRanges,
+                      }
+                    : null
+                }
+
+                const nextRange = {
+                  anchor: {
+                    columnId: "__row__",
+                    rowId,
+                  },
+                  focus: {
+                    columnId: "__row__",
+                    rowId,
+                  },
+                } satisfies DataTableSelectionRange
+
+                if (!current) {
+                  return createSelectionState(nextRange)
+                }
+
+                return addRangeToSelectionState({
+                  columnIds: [],
+                  columnIndexById: new Map<string, number>(),
+                  nextRange,
+                  rowIds: visibleRowIds,
+                  rowIndexById: visibleRowIndexById,
+                  rowSelection: true,
+                  selection: current,
+                })
+              })
+            },
+          }
+        : undefined,
+    [rowSelection, showRowSelectionColumn]
+  )
+  const columnBuildRows = useStableLeadingRows(
+    displayData,
+    25,
+    columnsWithEnumOptions
+  )
   const tableColumns = React.useMemo(
     () =>
       buildColumns(
@@ -1510,13 +1921,15 @@ function DataTableView<TData extends DataTableRow>({
         dateFormat,
         showRowSelectionColumn,
         showRowActionButtonsColumn,
-        rowActionsColumnSize
+        rowActionsColumnSize,
+        rowSelectionColumnState
       ),
     [
       columnBuildRows,
       columnsWithEnumOptions,
       dateFormat,
       rowActionsColumnSize,
+      rowSelectionColumnState,
       showRowActionButtonsColumn,
       showRowSelectionColumn,
     ]
@@ -1700,16 +2113,16 @@ function DataTableView<TData extends DataTableRow>({
     autoResetPageIndex: false,
     columnResizeMode: "onChange",
     columns: tableColumns,
-    data,
+    data: displayData,
     enableColumnResizing: true,
     enableGrouping: true,
-    enableRowSelection: canSelectRows ? (row) => !row.getIsGrouped() : false,
+    enableRowSelection: (row) => !row.getIsGrouped(),
     enableSubRowSelection: false,
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getGroupedRowModel: getGroupedRowModel(),
-    getRowId,
+    getRowId: resolveRowId,
     getSortedRowModel: getSortedRowModel(),
     groupedColumnMode: false,
     globalFilterFn: globalFilterFn as FilterFn<TData>,
@@ -1733,11 +2146,20 @@ function DataTableView<TData extends DataTableRow>({
       sorting,
     },
   })
+  tableRef.current = table
 
   const [containerEl, setContainerEl] = React.useState<HTMLDivElement | null>(
     null
   )
   const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const headerRef = React.useRef<HTMLTableSectionElement | null>(null)
+  const [headerHeight, setHeaderHeight] = React.useState(0)
+  const [editingOverlayRect, setEditingOverlayRect] = React.useState<{
+    height: number
+    left: number
+    top: number
+    width: number
+  } | null>(null)
   const containerCallbackRef = React.useCallback(
     (node: HTMLDivElement | null) => {
       containerRef.current = node
@@ -1753,11 +2175,87 @@ function DataTableView<TData extends DataTableRow>({
     () => new Map(rows.map((row) => [row.id, row])),
     [rows]
   )
-  const selectableRows = React.useMemo(
-    () => rows.filter((row) => row.getCanSelect()),
+  const interactiveRows = React.useMemo(
+    () => rows.filter((row) => !row.getIsGrouped()),
     [rows]
   )
-  const selectedTableRows = table.getSelectedRowModel().rows
+  const selectableColumns = React.useMemo(
+    () =>
+      table
+        .getVisibleLeafColumns()
+        .filter((column) => isSelectableColumnId(column.id)),
+    [table]
+  )
+  const columnIds = React.useMemo(
+    () => selectableColumns.map((column) => column.id),
+    [selectableColumns]
+  )
+  const rowIds = React.useMemo(
+    () => interactiveRows.map((row) => row.id),
+    [interactiveRows]
+  )
+  const columnIndexById = React.useMemo(
+    () => new Map(columnIds.map((columnId, index) => [columnId, index])),
+    [columnIds]
+  )
+  const rowIndexById = React.useMemo(
+    () => new Map(rowIds.map((rowId, index) => [rowId, index])),
+    [rowIds]
+  )
+  const normalizedSelectionRanges = React.useMemo(
+    () =>
+      normalizeSelectionState({
+        columnCount: columnIds.length,
+        columnIndexById,
+        rowIndexById,
+        rowSelection: isRowSelectionMode,
+        selection: selectionState,
+      }),
+    [columnIds.length, columnIndexById, isRowSelectionMode, rowIndexById, selectionState]
+  )
+  const selectedRowIds = React.useMemo(
+    () =>
+      getSelectedRowIds({
+        normalizedRanges: normalizedSelectionRanges,
+        rowIds,
+      }),
+    [normalizedSelectionRanges, rowIds]
+  )
+  const selectedRowIdSet = React.useMemo(
+    () => new Set(selectedRowIds),
+    [selectedRowIds]
+  )
+  const selectedTableRows = React.useMemo(
+    () =>
+      selectedRowIds
+        .map((rowId) => rowsById.get(rowId))
+        .filter((row): row is Row<TData> => Boolean(row)),
+    [rowsById, selectedRowIds]
+  )
+  const activeSelectionRange =
+    selectionState && selectionState.ranges.length > 0
+      ? selectionState.ranges[selectionState.activeRangeIndex] ?? null
+      : null
+  const activeCell = activeSelectionRange?.focus ?? null
+  const selectableColumnConfigs = React.useMemo(() => {
+    const configuredColumns = new Map<string, DataTableColumnConfig<TData>>()
+
+    columnsWithEnumOptions?.forEach((column, index) => {
+      configuredColumns.set(resolveColumnId(column, index), column)
+    })
+
+    return selectableColumns.map((column) => ({
+      config: configuredColumns.get(column.id) ?? {},
+      id: column.id,
+    }))
+  }, [columnsWithEnumOptions, selectableColumns])
+  const selectableColumnConfigById = React.useMemo(
+    () =>
+      new Map(
+        selectableColumnConfigs.map((column) => [column.id, column.config])
+      ),
+    [selectableColumnConfigs]
+  )
   const activeContextMenuRow = activeContextMenuRowId
     ? rowsById.get(activeContextMenuRowId)
     : undefined
@@ -1767,10 +2265,11 @@ function DataTableView<TData extends DataTableRow>({
         ? resolveVisibleRowActions(
             rowActions ?? [],
             activeContextMenuRow,
+            selectedRowIdSet,
             selectedTableRows
           )
         : [],
-    [activeContextMenuRow, rowActions, selectedTableRows]
+    [activeContextMenuRow, rowActions, selectedRowIdSet, selectedTableRows]
   )
   const activeContextMenuCell = React.useMemo(() => {
     if (!activeContextMenuRow || !activeContextMenuColumnId) {
@@ -1826,9 +2325,95 @@ function DataTableView<TData extends DataTableRow>({
     rowHeight,
   ])
   const virtualRows = rowVirtualizer.getVirtualItems()
-  const totalRows = data.length
-  const filteredRows = rows.length
-  const selectedRows = selectedTableRows.length
+  const visibleRowIndices = React.useMemo(
+    () => virtualRows.map((virtualRow) => virtualRow.index),
+    [virtualRows]
+  )
+  const rowStarts = React.useMemo(() => {
+    const next: number[] = []
+
+    for (const virtualRow of virtualRows) {
+      next[virtualRow.index] = virtualRow.start
+    }
+
+    return next
+  }, [virtualRows])
+  const rowStops = React.useMemo(() => {
+    const next: number[] = []
+
+    for (const virtualRow of virtualRows) {
+      next[virtualRow.index] = virtualRow.start + virtualRow.size
+    }
+
+    return next
+  }, [virtualRows])
+  const columnWidths = React.useMemo(
+    () => selectableColumns.map((column) => column.getSize()),
+    [selectableColumns]
+  )
+  const columnLefts = React.useMemo(() => {
+    let left = 0
+
+    return columnWidths.map((width) => {
+      const start = left
+
+      left += width
+
+      return start
+    })
+  }, [columnWidths])
+  const selectionOverlayBoxes = React.useMemo(
+    () =>
+      buildSelectionOverlayBoxes({
+        columnLefts,
+        columnWidths,
+        normalizedRanges: normalizedSelectionRanges,
+        rowStarts,
+        rowStops,
+        visibleRowIndices,
+      }),
+    [
+      columnLefts,
+      columnWidths,
+      normalizedSelectionRanges,
+      rowStarts,
+      rowStops,
+      visibleRowIndices,
+    ]
+  )
+  React.useEffect(() => {
+    selectionStateRef.current = selectionState
+  }, [selectionState])
+
+  React.useEffect(() => {
+    editingCellRef.current = editingCell
+  }, [editingCell])
+
+  React.useEffect(() => {
+    setRowSelection(Object.fromEntries(selectedRowIds.map((rowId) => [rowId, true])))
+  }, [selectedRowIds])
+
+  React.useLayoutEffect(() => {
+    if (!headerRef.current) {
+      return
+    }
+
+    const measure = () => {
+      setHeaderHeight(headerRef.current?.getBoundingClientRect().height ?? 0)
+    }
+
+    measure()
+
+    const observer = new ResizeObserver(() => {
+      measure()
+    })
+
+    observer.observe(headerRef.current)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [resolvedColumnOrder, resolvedColumnSizing, resolvedGrouping.length])
 
   React.useEffect(() => {
     if (activeContextMenuRowId && !rowsById.has(activeContextMenuRowId)) {
@@ -1872,10 +2457,13 @@ function DataTableView<TData extends DataTableRow>({
       setUncontrolledSearchDraft(nextState.globalFilter ?? "")
     }
     setRowSelection({})
+    setSelectionState(null)
+    setEditingCell(null)
     dragSelectionRef.current = null
     dragPointerRef.current = null
     setIsDragSelecting(false)
-    selectionAnchorIdRef.current = null
+    setPendingCellKeys({})
+    setLocalRowPatches({})
     for (const timerId of Object.values(rowActionStatusTimersRef.current)) {
       window.clearTimeout(timerId)
     }
@@ -1926,10 +2514,13 @@ function DataTableView<TData extends DataTableRow>({
         setUncontrolledSearchDraft(nextState.globalFilter ?? "")
       }
       setRowSelection({})
+      setSelectionState(null)
+      setEditingCell(null)
       dragSelectionRef.current = null
       dragPointerRef.current = null
       setIsDragSelecting(false)
-      selectionAnchorIdRef.current = null
+      setPendingCellKeys({})
+      setLocalRowPatches({})
     }
 
     window.addEventListener("popstate", syncFromUrl)
@@ -2069,19 +2660,14 @@ function DataTableView<TData extends DataTableRow>({
     return scheduleBottomScroll()
   }, [autoScrollToBottom, data.length, rowVirtualizer, rows.length])
 
-  const handleSearchDraftChange = (value: string) => {
-    if (!isGlobalFilterControlled) {
-      setUncontrolledSearchDraft(value)
-    }
-
-    onGlobalFilterChange?.(value)
-  }
-  const clearRowSelection = React.useCallback(() => {
-    setRowSelection({})
+  const clearSelection = React.useCallback(() => {
+    setSelectionState(null)
+    setEditingCell(null)
+    pendingAdditiveToggleCellRef.current = null
+    didDragSelectionRef.current = false
     dragSelectionRef.current = null
     dragPointerRef.current = null
     setIsDragSelecting(false)
-    selectionAnchorIdRef.current = null
   }, [])
 
   const isColumnHighlightEnabled = React.useCallback(
@@ -2148,174 +2734,822 @@ function DataTableView<TData extends DataTableRow>({
       resolvedMovableColumnOrder,
     ]
   )
-  const selectRange = React.useCallback(
-    (
-      anchorId: string,
-      rowId: string,
-      baseSelection: RowSelectionState = {}
-    ) => {
-      const anchorIndex = selectableRows.findIndex(
-        (candidateRow) => candidateRow.id === anchorId
-      )
-      const rowIndex = selectableRows.findIndex(
-        (candidateRow) => candidateRow.id === rowId
-      )
+  const setSelectionFromInteraction = React.useCallback(
+    ({
+      additive = false,
+      anchor,
+      baseSelection = selectionStateRef.current,
+      extend = false,
+      focus,
+    }: {
+      additive?: boolean
+      anchor: DataTableSelectionCell
+      baseSelection?: DataTableSelectionState | null
+      extend?: boolean
+      focus: DataTableSelectionCell
+    }) => {
+      const nextRange = {
+        anchor,
+        focus,
+      } satisfies DataTableSelectionRange
 
-      if (anchorIndex === -1 || rowIndex === -1) {
+      if (extend && baseSelection && baseSelection.ranges.length > 0) {
+        const activeRangeIndex = Math.min(
+          baseSelection.activeRangeIndex,
+          baseSelection.ranges.length - 1
+        )
+        const nextRanges = [...baseSelection.ranges]
+        const baseRange = nextRanges[activeRangeIndex] ?? nextRange
+
+        nextRanges[activeRangeIndex] = {
+          anchor: baseRange.anchor,
+          focus,
+        }
+
+        setSelectionState({
+          activeRangeIndex,
+          ranges: nextRanges,
+        })
         return
       }
 
-      const [start, end] =
-        anchorIndex <= rowIndex
-          ? [anchorIndex, rowIndex]
-          : [rowIndex, anchorIndex]
-
-      setRowSelection({
-        ...baseSelection,
-        ...Object.fromEntries(
-          selectableRows
-            .slice(start, end + 1)
-            .map((candidateRow) => [candidateRow.id, true])
-        ),
-      })
-    },
-    [selectableRows]
-  )
-  const selectSingleRow = React.useCallback((rowId: string) => {
-    selectionAnchorIdRef.current = rowId
-    setRowSelection({ [rowId]: true })
-  }, [])
-  const updateDragSelectionFromPointer = React.useCallback(
-    (clientX: number, clientY: number) => {
-      if (!dragSelectionRef.current) {
+      if (additive && baseSelection) {
+        setSelectionState(
+          addRangeToSelectionState({
+            columnIds,
+            columnIndexById,
+            nextRange,
+            rowIds,
+            rowIndexById,
+            rowSelection: isRowSelectionMode,
+            selection: baseSelection,
+          })
+        )
         return
+      }
+
+      setSelectionState(createSelectionState(nextRange))
+    },
+    [columnIds, columnIndexById, isRowSelectionMode, rowIds, rowIndexById]
+  )
+  const scrollCellIntoView = React.useCallback(
+    (cell: DataTableSelectionCell | null) => {
+      if (!cell || !containerRef.current) {
+        return
+      }
+
+      const row = rowsById.get(cell.rowId)
+
+      if (row) {
+        rowVirtualizer.scrollToIndex(row.index, {
+          align: "auto",
+        })
       }
 
       const container = containerRef.current
-
-      if (!container) {
-        return
-      }
-
-      const rowElement = document
-        .elementFromPoint(clientX, clientY)
-        ?.closest<HTMLTableRowElement>("tr[data-row-id]")
-      const renderedRows = Array.from(
-        container.querySelectorAll<HTMLTableRowElement>("tr[data-row-id]")
+      const cellElement = container.querySelector<HTMLElement>(
+        `tr[data-row-id="${cell.rowId}"] td[data-column-id="${cell.columnId}"]`
       )
-      const targetRowId =
-        rowElement?.dataset.rowId ??
-        (clientY < container.getBoundingClientRect().top
-          ? renderedRows[0]?.dataset.rowId
-          : clientY > container.getBoundingClientRect().bottom
-            ? renderedRows.at(-1)?.dataset.rowId
-            : undefined)
 
-      if (!targetRowId) {
+      if (!cellElement) {
         return
       }
 
-      const { anchorId, baseSelection } = dragSelectionRef.current
+      const containerBounds = container.getBoundingClientRect()
+      const cellBounds = cellElement.getBoundingClientRect()
 
-      selectRange(anchorId, targetRowId, baseSelection)
+      if (cellBounds.left < containerBounds.left) {
+        container.scrollLeft -= containerBounds.left - cellBounds.left + 8
+      } else if (cellBounds.right > containerBounds.right) {
+        container.scrollLeft += cellBounds.right - containerBounds.right + 8
+      }
     },
-    [selectRange]
+    [rowVirtualizer, rowsById]
   )
-  const handleRowMouseDown = React.useCallback(
-    (event: React.MouseEvent<HTMLTableRowElement>, row: Row<TData>) => {
+  const getEditingCellElement = React.useCallback(() => {
+    const currentEditingCell = editingCellRef.current
+
+    if (!currentEditingCell || !containerRef.current) {
+      return null
+    }
+
+    return containerRef.current.querySelector<HTMLTableCellElement>(
+      `tr[data-row-id="${currentEditingCell.rowId}"] td[data-column-id="${currentEditingCell.columnId}"]`
+    )
+  }, [])
+  const updateEditingOverlayRect = React.useCallback(() => {
+    const cellElement = getEditingCellElement()
+
+    if (!cellElement) {
+      setEditingOverlayRect(null)
+      return
+    }
+
+    const rect = cellElement.getBoundingClientRect()
+
+    setEditingOverlayRect({
+      height: rect.height,
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+    })
+  }, [getEditingCellElement])
+  const editingCellRowId = editingCell?.rowId ?? null
+  const editingCellColumnId = editingCell?.columnId ?? null
+  React.useLayoutEffect(() => {
+    if (!editingCellRowId || !editingCellColumnId) {
+      setEditingOverlayRect(null)
+      return
+    }
+
+    setEditingOverlayRect(null)
+
+    let frameId = 0
+    let attempts = 0
+
+    const measure = () => {
+      attempts += 1
+      updateEditingOverlayRect()
+
+      if (!getEditingCellElement() && attempts < 4) {
+        frameId = window.requestAnimationFrame(measure)
+      }
+    }
+
+    frameId = window.requestAnimationFrame(measure)
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [
+    editingCellColumnId,
+    editingCellRowId,
+    getEditingCellElement,
+    updateEditingOverlayRect,
+  ])
+  const getRelativeCell = React.useCallback(
+    (
+      cell: DataTableSelectionCell,
+      {
+        columnDelta,
+        rowDelta,
+      }: {
+        columnDelta: number
+        rowDelta: number
+      }
+    ) => {
+      if (rowIds.length === 0 || columnIds.length === 0) {
+        return null
+      }
+
+      const currentRowIndex = rowIndexById.get(cell.rowId) ?? 0
+      const currentColumnIndex = columnIndexById.get(cell.columnId) ?? 0
+      const nextRowIndex = Math.max(
+        0,
+        Math.min(rowIds.length - 1, currentRowIndex + rowDelta)
+      )
+      const nextColumnIndex = isRowSelectionMode
+        ? currentColumnIndex
+        : Math.max(
+            0,
+            Math.min(columnIds.length - 1, currentColumnIndex + columnDelta)
+          )
+
+      return {
+        columnId: columnIds[nextColumnIndex] ?? columnIds[0]!,
+        rowId: rowIds[nextRowIndex] ?? rowIds[0]!,
+      } satisfies DataTableSelectionCell
+    },
+    [columnIds, columnIndexById, isRowSelectionMode, rowIds, rowIndexById]
+  )
+  const moveSelection = React.useCallback(
+    ({
+      columnDelta,
+      extend = false,
+      rowDelta,
+    }: {
+      columnDelta: number
+      extend?: boolean
+      rowDelta: number
+    }) => {
+      if (interactiveRows.length === 0 || columnIds.length === 0) {
+        return
+      }
+
+      const currentRange =
+        selectionStateRef.current &&
+        selectionStateRef.current.ranges[selectionStateRef.current.activeRangeIndex]
+          ? selectionStateRef.current.ranges[
+              selectionStateRef.current.activeRangeIndex
+            ]!
+          : null
+      const currentCell =
+        currentRange?.focus ?? {
+          columnId: columnIds[0]!,
+          rowId: interactiveRows[0]!.id,
+        }
+      const currentRowIndex = rowIndexById.get(currentCell.rowId) ?? 0
+      const currentColumnIndex = columnIndexById.get(currentCell.columnId) ?? 0
+      const nextCell =
+        getRelativeCell(currentCell, {
+          columnDelta,
+          rowDelta,
+        }) ?? {
+          columnId: columnIds[currentColumnIndex] ?? columnIds[0]!,
+          rowId: rowIds[currentRowIndex] ?? rowIds[0]!,
+        }
+      const anchor = extend
+        ? currentRange?.anchor ?? currentCell
+        : nextCell
+
+      setSelectionFromInteraction({
+        anchor,
+        extend,
+        focus: nextCell,
+      })
+      scrollCellIntoView(nextCell)
+    },
+    [
+      columnIds,
+      getRelativeCell,
+      interactiveRows,
+      rowIds,
+      scrollCellIntoView,
+      setSelectionFromInteraction,
+    ]
+  )
+  const beginEditingCell = React.useCallback(
+    (cell: DataTableSelectionCell, initialDraft?: string) => {
+      if (isRowSelectionMode || !onUpdate) {
+        return false
+      }
+
+      const row = rowsById.get(cell.rowId)
+      const columnConfig = selectableColumnConfigs.find(
+        (column) => column.id === cell.columnId
+      )?.config
+
+      if (!row || !columnConfig) {
+        return false
+      }
+
+      const value = row.getValue(cell.columnId)
+
+      if (!resolveEditable(columnConfig, row.original, value)) {
+        return false
+      }
+
+      scrollCellIntoView(cell)
+      setSelectionFromInteraction({
+        anchor: cell,
+        focus: cell,
+      })
+      setEditingCell({
+        columnId: cell.columnId,
+        draft: initialDraft ?? stringifyEditableValue(value),
+        rowId: cell.rowId,
+      })
+
+      return true
+    },
+    [
+      isRowSelectionMode,
+      onUpdate,
+      rowsById,
+      scrollCellIntoView,
+      selectableColumnConfigs,
+      setSelectionFromInteraction,
+    ]
+  )
+  const commitEditingCell = React.useCallback(
+    async ({
+      nextCell,
+    }: {
+      nextCell?: DataTableSelectionCell | null
+    } = {}) => {
+      if (!editingCell) {
+        if (nextCell) {
+          setSelectionFromInteraction({
+            anchor: nextCell,
+            focus: nextCell,
+          })
+          scrollCellIntoView(nextCell)
+        }
+
+        return
+      }
+
+      const row = rowsById.get(editingCell.rowId)
+      const key = `${editingCell.rowId}:${editingCell.columnId}`
+
+      if (!row || !onUpdate) {
+        setEditingCell(null)
+        return
+      }
+
+      const currentValue = stringifyEditableValue(
+        row.getValue(editingCell.columnId)
+      )
+
+      if (editingCell.draft === currentValue) {
+        setEditingCell(null)
+
+        if (nextCell) {
+          setSelectionFromInteraction({
+            anchor: nextCell,
+            focus: nextCell,
+          })
+          scrollCellIntoView(nextCell)
+        }
+
+        return
+      }
+
+      setPendingCellKeys((current) => ({
+        ...current,
+        [key]: true,
+      }))
+
+      try {
+        const results = await onUpdate([
+          {
+            data: {
+              [editingCell.columnId]: editingCell.draft,
+            },
+            row: row.original,
+            rowId: editingCell.rowId,
+          },
+        ])
+
+        setLocalRowPatches((current) => {
+          const next = { ...current }
+
+          for (const result of results) {
+            next[result.rowId] = {
+              ...(next[result.rowId] ?? {}),
+              ...result.data,
+            }
+          }
+
+          return next
+        })
+      } finally {
+        setPendingCellKeys((current) => {
+          const next = { ...current }
+
+          delete next[key]
+
+          return next
+        })
+        setEditingCell(null)
+      }
+
+      if (nextCell) {
+        setSelectionFromInteraction({
+          anchor: nextCell,
+          focus: nextCell,
+        })
+        scrollCellIntoView(nextCell)
+      }
+    },
+    [editingCell, onUpdate, rowsById, scrollCellIntoView, setSelectionFromInteraction]
+  )
+  const cancelEditingCell = React.useCallback(() => {
+    setEditingCell(null)
+  }, [])
+  const handleEditingOverlayChange = React.useCallback((value: string) => {
+    setEditingCell((current) =>
+      current
+        ? {
+            ...current,
+            draft: value,
+          }
+        : current
+    )
+  }, [])
+  const updateDragSelectionFromPointer = React.useCallback(
+    (clientX: number, clientY: number) => {
+      if (!dragSelectionRef.current || !containerRef.current) {
+        return
+      }
+
+      const target = document
+        .elementFromPoint(clientX, clientY)
+        ?.closest<HTMLElement>("[data-selection-row-id][data-selection-column-id]")
+      const renderedCells = Array.from(
+        containerRef.current.querySelectorAll<HTMLElement>(
+          "[data-selection-row-id][data-selection-column-id]"
+        )
+      )
+      const fallbackCell =
+        clientY < containerRef.current.getBoundingClientRect().top
+          ? renderedCells[0]
+          : clientY > containerRef.current.getBoundingClientRect().bottom
+            ? renderedCells.at(-1)
+            : undefined
+      const rowId = target?.dataset.selectionRowId ?? fallbackCell?.dataset.selectionRowId
+      const columnId =
+        target?.dataset.selectionColumnId ?? fallbackCell?.dataset.selectionColumnId
+
+      if (!rowId || !columnId) {
+        return
+      }
+
+      const { activeRangeIndex, additive, anchor, baseSelection, extend } =
+        dragSelectionRef.current
+      const focus = {
+        columnId,
+        rowId,
+      } satisfies DataTableSelectionCell
+
+      if (focus.rowId !== anchor.rowId || focus.columnId !== anchor.columnId) {
+        didDragSelectionRef.current = true
+        pendingAdditiveToggleCellRef.current = null
+      }
+
+      if (extend && baseSelection && baseSelection.ranges.length > 0) {
+        const nextRanges = [...baseSelection.ranges]
+        const baseRange = nextRanges[activeRangeIndex] ?? {
+          anchor,
+          focus,
+        }
+
+        nextRanges[activeRangeIndex] = {
+          anchor: baseRange.anchor,
+          focus,
+        }
+
+        setSelectionState({
+          activeRangeIndex,
+          ranges: nextRanges,
+        })
+        return
+      }
+
+      if (additive && baseSelection) {
+        setSelectionState(
+          addRangeToSelectionState({
+            columnIds,
+            columnIndexById,
+            nextRange: {
+              anchor,
+              focus,
+            },
+            rowIds,
+            rowIndexById,
+            rowSelection: isRowSelectionMode,
+            selection: baseSelection,
+          })
+        )
+        return
+      }
+
+      setSelectionState(
+        createSelectionState({
+          anchor,
+          focus,
+        })
+      )
+    },
+    [columnIds, columnIndexById, isRowSelectionMode, rowIds, rowIndexById]
+  )
+  const handleCellMouseDown = React.useCallback(
+    (
+      event: React.MouseEvent<HTMLTableCellElement>,
+      cell: Cell<TData, unknown>
+    ) => {
+      if (event.button !== 0 || shouldIgnoreRowSelectionTarget(event.target)) {
+        return
+      }
+
+      if (editingCell) {
+        return
+      }
+
+      const nextCell = {
+        columnId: cell.column.id,
+        rowId: cell.row.id,
+      } satisfies DataTableSelectionCell
+      const currentSelection = selectionStateRef.current
+      const currentEditingCell = editingCellRef.current
+      const rowIndex = rowIndexById.get(nextCell.rowId)
+      const columnIndex = columnIndexById.get(nextCell.columnId)
+      const isAlreadySelected =
+        rowIndex !== undefined &&
+        columnIndex !== undefined &&
+        isCellInSelectionRanges({
+          columnIndex,
+          normalizedRanges: normalizedSelectionRanges,
+          rowIndex,
+        })
+
       if (
-        event.button !== 0 ||
-        !canSelectRows ||
-        !row.getCanSelect() ||
-        shouldIgnoreRowSelectionTarget(event.target)
+        currentEditingCell &&
+        currentEditingCell.rowId === nextCell.rowId &&
+        currentEditingCell.columnId === nextCell.columnId
       ) {
         return
       }
 
-      event.preventDefault()
+      if (currentEditingCell) {
+        event.preventDefault()
+        void commitEditingCell({
+          nextCell,
+        })
+        return
+      }
+
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest('[data-cell-content="true"]') &&
+        !event.shiftKey &&
+        !event.metaKey &&
+        !event.ctrlKey
+      ) {
+        return
+      }
+
       dragPointerRef.current = {
         clientX: event.clientX,
         clientY: event.clientY,
       }
+      event.preventDefault()
 
-      const rowId = row.id
-      const isAdditiveSelection = event.metaKey || event.ctrlKey
-      const currentSelection = table.getState().rowSelection
+      if (event.shiftKey && currentSelection && currentSelection.ranges.length > 0) {
+        const activeRangeIndex = Math.min(
+          currentSelection.activeRangeIndex,
+          currentSelection.ranges.length - 1
+        )
+        const activeRange = currentSelection.ranges[activeRangeIndex]!
 
-      if (event.shiftKey) {
-        const anchorId = selectionAnchorIdRef.current ?? rowId
-
-        selectionAnchorIdRef.current = anchorId
         dragSelectionRef.current = {
-          anchorId,
-          baseSelection: {},
+          activeRangeIndex,
+          additive: false,
+          anchor: activeRange.anchor,
+          baseSelection: currentSelection,
+          extend: true,
         }
         setIsDragSelecting(true)
-        selectRange(anchorId, rowId)
+        setSelectionState({
+          activeRangeIndex,
+          ranges: currentSelection.ranges.map((range, index) =>
+            index === activeRangeIndex
+              ? {
+                  anchor: range.anchor,
+                  focus: nextCell,
+                }
+              : range
+          ),
+        })
         return
       }
 
-      if (isAdditiveSelection) {
-        const baseSelection = { ...currentSelection }
+      const additive = event.metaKey || event.ctrlKey
+      const baseSelection = additive ? currentSelection : null
+      const nextActiveRangeIndex = additive && currentSelection
+        ? currentSelection.ranges.length
+        : 0
 
-        if (baseSelection[rowId]) {
-          delete baseSelection[rowId]
-        } else {
-          baseSelection[rowId] = true
-        }
+      didDragSelectionRef.current = false
+      pendingAdditiveToggleCellRef.current =
+        additive && isAlreadySelected ? nextCell : null
 
-        selectionAnchorIdRef.current = rowId
-        dragSelectionRef.current = {
-          anchorId: rowId,
-          baseSelection,
-        }
-        setIsDragSelecting(true)
-        setRowSelection(baseSelection)
-        return
-      }
-
-      selectionAnchorIdRef.current = rowId
       dragSelectionRef.current = {
-        anchorId: rowId,
-        baseSelection: {},
+        activeRangeIndex: nextActiveRangeIndex,
+        additive,
+        anchor: nextCell,
+        baseSelection,
+        extend: false,
       }
       setIsDragSelecting(true)
-      setRowSelection({ [rowId]: true })
+
+      if (additive && isAlreadySelected) {
+        return
+      }
+
+      setSelectionFromInteraction({
+        additive,
+        anchor: nextCell,
+        baseSelection,
+        focus: nextCell,
+      })
     },
-    [canSelectRows, selectRange, table]
+    [
+      columnIndexById,
+      commitEditingCell,
+      editingCell,
+      normalizedSelectionRanges,
+      rowIndexById,
+      setSelectionFromInteraction,
+    ]
   )
-  const handleRowMouseEnter = React.useCallback(
-    (event: React.MouseEvent<HTMLTableRowElement>, row: Row<TData>) => {
+  const handleCellMouseEnter = React.useCallback(
+    (event: React.MouseEvent<HTMLTableCellElement>) => {
+      if (event.buttons !== 1 || !dragSelectionRef.current) {
+        return
+      }
+
+      dragPointerRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      }
+      updateDragSelectionFromPointer(event.clientX, event.clientY)
+    },
+    [updateDragSelectionFromPointer]
+  )
+  const handleCellClick = React.useCallback(
+    (
+      event: React.MouseEvent<HTMLTableCellElement>,
+      cell: Cell<TData, unknown>
+    ) => {
+      const textSelection = window.getSelection()?.toString() ?? ""
+
+      if (textSelection.length > 0) {
+        return
+      }
+
+      const nextCell = {
+        columnId: cell.column.id,
+        rowId: cell.row.id,
+      } satisfies DataTableSelectionCell
+      const isAdditive = event.metaKey || event.ctrlKey
+      const rowIndex = rowIndexById.get(nextCell.rowId)
+      const columnIndex = columnIndexById.get(nextCell.columnId)
+      const isAlreadySelected =
+        rowIndex !== undefined &&
+        columnIndex !== undefined &&
+        isCellInSelectionRanges({
+          columnIndex,
+          normalizedRanges: normalizedSelectionRanges,
+          rowIndex,
+        })
+
       if (
-        !canSelectRows ||
-        !row.getCanSelect() ||
-        event.buttons !== 1 ||
-        shouldIgnoreRowSelectionTarget(event.target) ||
-        !dragSelectionRef.current
+        isAdditive &&
+        pendingAdditiveToggleCellRef.current?.rowId === nextCell.rowId &&
+        pendingAdditiveToggleCellRef.current?.columnId === nextCell.columnId &&
+        !didDragSelectionRef.current
       ) {
+        setSelectionState((current) =>
+          removeRangeFromSelectionState({
+            columnIds,
+            columnIndexById,
+            rangeToRemove: {
+              anchor: nextCell,
+              focus: nextCell,
+            },
+            rowIds,
+            rowIndexById,
+            rowSelection: isRowSelectionMode,
+            selection: current,
+          })
+        )
+        pendingAdditiveToggleCellRef.current = null
+        didDragSelectionRef.current = false
         return
       }
 
-      const { anchorId, baseSelection } = dragSelectionRef.current
+      if (event.shiftKey || isAdditive) {
+        pendingAdditiveToggleCellRef.current = null
+        didDragSelectionRef.current = false
+        return
+      }
 
-      selectRange(anchorId, row.id, baseSelection)
+      pendingAdditiveToggleCellRef.current = null
+      didDragSelectionRef.current = false
+      setSelectionFromInteraction({
+        anchor: nextCell,
+        focus: nextCell,
+      })
     },
-    [canSelectRows, selectRange]
+    [
+      columnIds,
+      columnIndexById,
+      isRowSelectionMode,
+      normalizedSelectionRanges,
+      rowIds,
+      rowIndexById,
+      setSelectionFromInteraction,
+    ]
   )
-  const handleRowContextMenu = React.useCallback(
-    (row: Row<TData>) => {
-      if (!canSelectRows || !row.getCanSelect()) {
-        return
-      }
-
-      if (row.getIsSelected()) {
-        selectionAnchorIdRef.current = row.id
-        return
-      }
-
-      selectSingleRow(row.id)
+  const handleCellDoubleClick = React.useCallback(
+    (cell: Cell<TData, unknown>) => {
+      void beginEditingCell({
+        columnId: cell.column.id,
+        rowId: cell.row.id,
+      })
     },
-    [canSelectRows, selectSingleRow]
+    [beginEditingCell]
+  )
+  const editingOverlayContext = React.useMemo(() => {
+    if (!editingCell || !editingOverlayRect) {
+      return null
+    }
+
+    const row = rowsById.get(editingCell.rowId)
+    const column = selectableColumnConfigById.get(editingCell.columnId)
+    const tableColumn = table.getColumn(editingCell.columnId)
+    const meta = (tableColumn?.columnDef.meta ?? {}) as DataTableColumnMeta
+
+    if (!row || !column || !meta.kind) {
+      return null
+    }
+
+    const Editor = resolveDataTableCellEditor<TData>({
+      editors: cellEditors,
+      kind: meta.kind,
+    })
+    const pendingKey = `${editingCell.rowId}:${editingCell.columnId}`
+    const nextCell = getRelativeCell(
+      {
+        columnId: editingCell.columnId,
+        rowId: editingCell.rowId,
+      },
+      {
+        columnDelta: 1,
+        rowDelta: 0,
+      }
+    )
+    const previousCell = getRelativeCell(
+      {
+        columnId: editingCell.columnId,
+        rowId: editingCell.rowId,
+      },
+      {
+        columnDelta: -1,
+        rowDelta: 0,
+      }
+    )
+    const handleEditorKeyDown = (
+      event:
+        | React.KeyboardEvent<HTMLInputElement>
+        | React.KeyboardEvent<HTMLSelectElement>
+        | React.KeyboardEvent<HTMLTextAreaElement>
+    ) => {
+      event.stopPropagation()
+
+      if (event.key === "Enter") {
+        event.preventDefault()
+        void commitEditingCell()
+      } else if (event.key === "Tab") {
+        event.preventDefault()
+        void commitEditingCell({
+          nextCell: event.shiftKey ? previousCell : nextCell,
+        })
+      } else if (event.key === "Escape") {
+        event.preventDefault()
+        cancelEditingCell()
+      }
+    }
+
+    return {
+      Editor,
+      column,
+      handleEditorKeyDown,
+      pending: pendingCellKeys[pendingKey] === true,
+      rect: editingOverlayRect,
+      row: row.original,
+      value: editingCell.draft,
+    }
+  }, [
+    cancelEditingCell,
+    cellEditors,
+    commitEditingCell,
+    editingCell,
+    editingOverlayRect,
+    getRelativeCell,
+    pendingCellKeys,
+    rowsById,
+    selectableColumnConfigById,
+    table,
+  ])
+  const handleRowContextMenu = React.useCallback(
+    (row: Row<TData>, columnId?: string | null) => {
+      if (row.getIsGrouped()) {
+        return
+      }
+
+      if (selectedRowIdSet.has(row.id)) {
+        return
+      }
+
+      const fallbackColumnId = columnId ?? columnIds[0]
+
+      if (!fallbackColumnId) {
+        return
+      }
+
+      const nextCell = {
+        columnId: fallbackColumnId,
+        rowId: row.id,
+      } satisfies DataTableSelectionCell
+
+      setSelectionFromInteraction({
+        anchor: nextCell,
+        focus: nextCell,
+      })
+    },
+    [columnIds, selectedRowIdSet, setSelectionFromInteraction]
   )
   const handleTableContextMenuCapture = React.useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -2346,9 +3580,15 @@ function DataTableView<TData extends DataTableRow>({
         return
       }
 
+      handleRowContextMenu(row, columnId)
+
       if (
-        resolveVisibleRowActions(rowActions, row, selectedTableRows).length ===
-        0
+        resolveVisibleRowActions(
+          rowActions,
+          row,
+          selectedRowIdSet,
+          selectedTableRows
+        ).length === 0
       ) {
         setActiveContextMenuRowId(null)
         setActiveContextMenuColumnId(null)
@@ -2359,7 +3599,7 @@ function DataTableView<TData extends DataTableRow>({
       setActiveContextMenuRowId(rowId)
       setActiveContextMenuColumnId(columnId)
     },
-    [rowActions, rowsById, selectedTableRows]
+    [handleRowContextMenu, rowActions, rowsById, selectedRowIdSet, selectedTableRows]
   )
   React.useEffect(() => {
     if (!isDragSelecting) {
@@ -2429,26 +3669,199 @@ function DataTableView<TData extends DataTableRow>({
     }
   }, [isDragSelecting, updateDragSelectionFromPointer])
   React.useEffect(() => {
-    if (!canSelectRows) {
-      return
-    }
-
     const handleWindowKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key !== "Escape" ||
-        Object.keys(rowSelection).length === 0 ||
-        shouldIgnoreSelectionShortcutTarget(event.target)
-      ) {
+      if (shouldIgnoreSelectionShortcutTarget(event.target)) {
         return
       }
 
-      clearRowSelection()
+      if (
+        event.key === "Escape" &&
+        (selectionStateRef.current?.ranges.length ?? 0) > 0
+      ) {
+        event.preventDefault()
+        clearSelection()
+        return
+      }
+
+      if (editingCell) {
+        return
+      }
+
+      switch (event.key) {
+        case "ArrowUp":
+          event.preventDefault()
+          moveSelection({
+            columnDelta: 0,
+            extend: event.shiftKey,
+            rowDelta: -1,
+          })
+          return
+        case "ArrowDown":
+          event.preventDefault()
+          moveSelection({
+            columnDelta: 0,
+            extend: event.shiftKey,
+            rowDelta: 1,
+          })
+          return
+        case "ArrowLeft":
+          if (isRowSelectionMode) {
+            return
+          }
+
+          event.preventDefault()
+          moveSelection({
+            columnDelta: -1,
+            extend: event.shiftKey,
+            rowDelta: 0,
+          })
+          return
+        case "ArrowRight":
+          if (isRowSelectionMode) {
+            return
+          }
+
+          event.preventDefault()
+          moveSelection({
+            columnDelta: 1,
+            extend: event.shiftKey,
+            rowDelta: 0,
+          })
+          return
+        case "Enter":
+          if (!activeCell) {
+            return
+          }
+
+          event.preventDefault()
+          void beginEditingCell(activeCell)
+          return
+        case "Tab":
+          if (isRowSelectionMode) {
+            return
+          }
+
+          event.preventDefault()
+          moveSelection({
+            columnDelta: event.shiftKey ? -1 : 1,
+            rowDelta: 0,
+          })
+          return
+        default:
+          if (
+            event.key.length === 1 &&
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            activeCell
+          ) {
+            event.preventDefault()
+            void beginEditingCell(activeCell, event.key)
+          }
+      }
     }
 
     window.addEventListener("keydown", handleWindowKeyDown)
 
     return () => window.removeEventListener("keydown", handleWindowKeyDown)
-  }, [canSelectRows, clearRowSelection, rowSelection])
+  }, [
+    activeCell,
+    beginEditingCell,
+    clearSelection,
+    editingCell,
+    isRowSelectionMode,
+    moveSelection,
+  ])
+  const registerViewerSettings = React.useContext(DataTableViewerSettingsContext)
+  const settingsColumns = React.useMemo<DataTableViewerSettingsColumn[]>(() => {
+    if (!columns || columns.length === 0) return []
+    const result: DataTableViewerSettingsColumn[] = []
+    for (let i = 0; i < columns.length; i++) {
+      const col = columns[i]!
+      const colId = resolveColumnId(col, i)
+      if (colId === "__selection" || colId === "__actions") continue
+      result.push({
+        id: colId,
+        kind: col.kind,
+        label: col.header ?? formatHeaderLabel(col.accessorKey ?? col.id ?? `column-${i}`),
+        visible: resolvedColumnVisibility[colId] !== false,
+      })
+    }
+    return result
+  }, [columns, resolvedColumnVisibility])
+  const resolvedGroupingRef = React.useRef(resolvedGrouping)
+  resolvedGroupingRef.current = resolvedGrouping
+  const resolvedColumnVisibilityRef = React.useRef(resolvedColumnVisibility)
+  resolvedColumnVisibilityRef.current = resolvedColumnVisibility
+  tableRef.current = table
+
+  React.useEffect(() => {
+    if (!registerViewerSettings) return
+
+    const currentGrouping = resolvedGroupingRef.current
+
+    registerViewerSettings({
+      columns: settingsColumns,
+      exportActions: [
+        {
+          id: "csv",
+          label: "Export CSV",
+          onSelect: () => {
+            if (tableRef.current) {
+              exportTableData(tableRef.current, id, "csv")
+            }
+          },
+        },
+        {
+          id: "md",
+          label: "Export Markdown",
+          onSelect: () => {
+            if (tableRef.current) {
+              exportTableData(tableRef.current, id, "md")
+            }
+          },
+        },
+      ],
+      groupedColumnIds: [...currentGrouping],
+      onClearGrouping: () => {
+        if (isGroupingControlled) {
+          onGroupingChange?.([])
+        } else {
+          setGrouping([])
+        }
+      },
+      onToggleGrouping: (columnId, grouped) => {
+        const updater = (current: GroupingState) =>
+          grouped
+            ? current.includes(columnId) ? current : [...current, columnId]
+            : current.filter((gId) => gId !== columnId)
+        if (isGroupingControlled) {
+          onGroupingChange?.(updater(resolvedGroupingRef.current))
+        } else {
+          setGrouping(updater)
+        }
+      },
+      onToggleColumn: (columnId, visible) => {
+        const updater = (current: VisibilityState) => ({ ...current, [columnId]: visible })
+        if (isColumnVisibilityControlled) {
+          onColumnVisibilityChange?.(updater(resolvedColumnVisibilityRef.current))
+        } else {
+          setColumnVisibility(updater)
+        }
+      },
+    })
+
+    return () => registerViewerSettings(null)
+  }, [
+    registerViewerSettings,
+    settingsColumns,
+    resolvedGrouping,
+    isGroupingControlled,
+    onGroupingChange,
+    isColumnVisibilityControlled,
+    onColumnVisibilityChange,
+    id,
+  ])
 
   const tableContent = (
     <div
@@ -2463,15 +3876,17 @@ function DataTableView<TData extends DataTableRow>({
       }}
     >
       <DndContext
+        id="datool-dnd-context"
         collisionDetection={closestCenter}
         onDragEnd={handleColumnDragEnd}
         sensors={reorderSensors}
       >
-        <table
-          className="border-spacing-0 grid w-full border-separate"
-          role="grid"
-        >
-          <thead className="top-0 sticky z-20 grid">
+        <div className="relative min-w-full" style={{ width: table.getTotalSize() }}>
+          <table
+            className="border-spacing-0 grid w-full border-separate"
+            role="grid"
+          >
+          <thead className="top-0 sticky z-20 grid" ref={headerRef}>
             {table.getHeaderGroups().map((headerGroup) => (
               <SortableContext
                 items={headerGroup.headers
@@ -2532,12 +3947,12 @@ function DataTableView<TData extends DataTableRow>({
             ))}
           </thead>
 
-          <tbody
-            className="relative grid"
-            style={{
-              height: rowVirtualizer.getTotalSize(),
-            }}
-          >
+            <tbody
+              className="relative grid"
+              style={{
+                height: rowVirtualizer.getTotalSize(),
+              }}
+            >
             {virtualRows.length === 0 ? (
               <tr className="inset-x-0 top-0 absolute flex h-full items-center justify-center">
                 <td className="px-4 py-10 text-sm text-muted-foreground text-center">
@@ -2553,10 +3968,11 @@ function DataTableView<TData extends DataTableRow>({
                   : resolveVisibleRowActions(
                       rowActions ?? [],
                       row,
+                      selectedRowIdSet,
                       selectedTableRows
                     )
                 const groupVisibleCells = row.getVisibleCells()
-                const isSelected = row.getIsSelected()
+                const isSelected = isRowSelectionMode && selectedRowIdSet.has(row.id)
                 const groupingColumn = row.groupingColumnId
                   ? table.getColumn(row.groupingColumnId)
                   : undefined
@@ -2600,19 +4016,6 @@ function DataTableView<TData extends DataTableRow>({
                       !isGroupRow && isSelected ? "selected" : undefined
                     }
                     key={row.id}
-                    onContextMenu={
-                      isGroupRow ? undefined : () => handleRowContextMenu(row)
-                    }
-                    onMouseDown={
-                      isGroupRow
-                        ? undefined
-                        : (event) => handleRowMouseDown(event, row)
-                    }
-                    onMouseEnter={
-                      isGroupRow
-                        ? undefined
-                        : (event) => handleRowMouseEnter(event, row)
-                    }
                     ref={(node) => {
                       if (node) {
                         rowVirtualizer.measureElement(node)
@@ -2770,8 +4173,58 @@ function DataTableView<TData extends DataTableRow>({
                             return (
                               <DataTableBodyCell
                                 cell={cell}
+                                cellProps={{
+                                  "data-selection-column-id": isSelectableColumnId(
+                                    cell.column.id
+                                  )
+                                    ? cell.column.id
+                                    : undefined,
+                                  "data-selection-row-id": isSelectableColumnId(
+                                    cell.column.id
+                                  )
+                                    ? row.id
+                                    : undefined,
+                                  onDoubleClick: isSelectableColumnId(cell.column.id)
+                                    ? () => handleCellDoubleClick(cell)
+                                    : undefined,
+                                  onClick: isSelectableColumnId(cell.column.id)
+                                    ? (event) => handleCellClick(event, cell)
+                                    : undefined,
+                                  onMouseDown: isSelectableColumnId(cell.column.id)
+                                    ? (event) => handleCellMouseDown(event, cell)
+                                    : undefined,
+                                  onMouseEnter: isSelectableColumnId(cell.column.id)
+                                    ? (event) => handleCellMouseEnter(event)
+                                    : undefined,
+                                }}
                                 dateFormat={dateFormat}
                                 highlightTerms={highlightTerms}
+                                isActive={
+                                  activeCell?.rowId === row.id &&
+                                  activeCell?.columnId === cell.column.id
+                                }
+                                isEditing={
+                                  editingCell?.rowId === row.id &&
+                                  editingCell?.columnId === cell.column.id
+                                }
+                                isSelected={
+                                  (() => {
+                                    const rowIndex = rowIndexById.get(row.id)
+                                    const columnIndex = columnIndexById.get(
+                                      cell.column.id
+                                    )
+
+                                    return (
+                                      rowIndex !== undefined &&
+                                      columnIndex !== undefined &&
+                                      isCellInSelectionRanges({
+                                        columnIndex,
+                                        normalizedRanges: normalizedSelectionRanges,
+                                        rowIndex,
+                                      })
+                                    )
+                                  })()
+                                }
                                 key={cell.id}
                                 paddingLeft={
                                   index === 0
@@ -2791,15 +4244,57 @@ function DataTableView<TData extends DataTableRow>({
                 )
               })
             )}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+          <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+            {selectionOverlayBoxes.map((box) => (
+              <div
+                className="absolute border border-primary/70 ring-1 ring-primary/70 bg-primary/6"
+                key={box.key}
+                style={{
+                  height: box.height,
+                  left: box.left,
+                  top: headerHeight + box.top,
+                  width: box.width,
+                }}
+              />
+            ))}
+          </div>
+        </div>
       </DndContext>
+      {editingOverlayContext
+        ? createPortal(
+            <div
+              className="z-60 overflow-hidden border border-primary ring-1 ring-primary bg-background shadow-lg"
+              style={{
+                height: editingOverlayContext.rect.height,
+                left: editingOverlayContext.rect.left,
+                position: "fixed",
+                top: editingOverlayContext.rect.top,
+                width: editingOverlayContext.rect.width,
+              }}
+            >
+              <editingOverlayContext.Editor
+                column={editingOverlayContext.column}
+                onBlur={() => {
+                  void commitEditingCell()
+                }}
+                onChange={handleEditingOverlayChange}
+                onKeyDown={editingOverlayContext.handleEditorKeyDown}
+                pending={editingOverlayContext.pending}
+                row={editingOverlayContext.row}
+                value={editingOverlayContext.value}
+              />
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   )
 
   return (
     <section
-      className="min-h-0 border-border bg-card text-card-foreground shadow-sm flex flex-col overflow-hidden border-t"
+      className="min-h-0 border-border bg-card text-card-foreground flex flex-col overflow-hidden border-t"
       style={{ height }}
     >
       {rowActions && rowActions.length > 0 ? (
@@ -2846,7 +4341,8 @@ function DataTableView<TData extends DataTableRow>({
             {activeContextMenuActions.length > 0 ? (
               <ContextMenuSeparator />
             ) : null}
-            {activeContextMenuRow?.getIsSelected() &&
+            {activeContextMenuRow &&
+            selectedRowIdSet.has(activeContextMenuRow.id) &&
             selectedTableRows.length > 1 ? (
               <ContextMenuLabel>
                 {selectedTableRows.length} selected rows

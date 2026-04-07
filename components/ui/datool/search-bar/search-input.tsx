@@ -63,6 +63,8 @@ function createSelectorDecorations(doc: Editor["state"]["doc"]) {
           to,
           {
             class: "data-table-search-input-selector-token",
+            nodeName: "span",
+            "data-search-field-id": range.fieldId,
             "data-table-search-selector": "",
           },
           {
@@ -222,6 +224,7 @@ export function DataTableSearchInput<Row extends Record<string, unknown>>({
   const [cursor, setCursor] = React.useState(0)
   const [open, setOpen] = React.useState(false)
   const [activeIndex, setActiveIndex] = React.useState(-1)
+  const [focused, setFocused] = React.useState(false)
 
   const setActiveSuggestionIndex = React.useCallback((nextIndex: number) => {
     activeIndexRef.current = nextIndex
@@ -315,7 +318,7 @@ export function DataTableSearchInput<Row extends Record<string, unknown>>({
           autocomplete: "off",
           autocorrect: "off",
           class:
-            "data-table-search-input-editor min-w-0 flex-1 overflow-x-auto px-2 py-0 text-sm outline-none whitespace-pre",
+            "data-table-search-input-editor min-w-0 flex-1 px-2 py-2.5 text-sm outline-none",
           spellcheck: "false",
         },
         handleKeyDown: (_view, event) => {
@@ -564,8 +567,15 @@ export function DataTableSearchInput<Row extends Record<string, unknown>>({
 
   return (
     <div ref={containerRef} className="min-w-64 relative flex-1">
-      <div className="border-input bg-background ring-offset-background focus-within:border-ring focus-within:ring-ring/30 flex h-10 w-full items-center rounded-md border text-lg focus-within:ring-2">
-        <div className="flex shrink-0 items-center pl-3">
+      {focused && <div className="h-10" />}
+      <div
+        className={focused ? "absolute inset-x-0 top-0 z-50" : ""}
+        data-search-focused={focused ? "" : undefined}
+      >
+        <div
+          className={`border-input bg-background ring-offset-background focus-within:border-ring focus-within:ring-ring/30 flex w-full items-start rounded-md border text-lg focus-within:ring-2 ${focused ? "min-h-10" : "h-10"}`}
+        >
+          <div className="flex h-10 shrink-0 items-center pl-3">
           <span
             aria-hidden="true"
             className="size-5 flex shrink-0 items-center justify-center"
@@ -577,12 +587,13 @@ export function DataTableSearchInput<Row extends Record<string, unknown>>({
             )}
           </span>
         </div>
-        <div className="min-w-0 flex-1">
+        <div className={`min-w-0 flex-1 ${focused ? "" : "overflow-hidden"}`}>
           <EditorContent
             editor={editor}
             onBlur={() => {
               requestAnimationFrame(() => {
                 if (!containerRef.current?.contains(document.activeElement)) {
+                  setFocused(false)
                   setOpen(false)
                 }
                 suppressNextFocusOpenRef.current = false
@@ -594,6 +605,7 @@ export function DataTableSearchInput<Row extends Record<string, unknown>>({
               setOpen(true)
             }}
             onFocus={() => {
+              setFocused(true)
               setCursor(editor ? getCursorOffset(editor) : 0)
 
               if (suppressNextFocusOpenRef.current) {
@@ -605,7 +617,7 @@ export function DataTableSearchInput<Row extends Record<string, unknown>>({
             }}
           />
         </div>
-        <div className="flex shrink-0 items-center pr-1">
+        <div className="flex h-10 shrink-0 items-center pr-1">
           {value ? (
             <button
               aria-label="Clear search"
@@ -634,7 +646,7 @@ export function DataTableSearchInput<Row extends Record<string, unknown>>({
       </div>
 
       {open ? (
-        <div className="left-0 mt-1 absolute top-full z-50 w-full">
+        <div className="mt-1 w-full">
           <div className="max-h-[min(calc(var(--spacing(72)---spacing(9)),calc(100svh---spacing(20)))] rounded-lg bg-popover text-popover-foreground shadow-md ring-foreground/10 overflow-hidden ring-1">
             {suggestions.length === 0 ? (
               <div className="py-2 text-xs/relaxed text-muted-foreground flex w-full justify-center text-center">
@@ -694,6 +706,7 @@ export function DataTableSearchInput<Row extends Record<string, unknown>>({
           </div>
         </div>
       ) : null}
+      </div>
     </div>
   )
 }

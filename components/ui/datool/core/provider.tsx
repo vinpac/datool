@@ -40,6 +40,34 @@ type InternalDatoolInstance<TState extends DatoolStateShape> =
     __getDefinitions: () => Record<string, DatoolQueryDefinition<any, any, any, any>>
   }
 
+export type DatoolViewerSettingsColumn = {
+  id: string
+  kind?: string
+  label: string
+  visible: boolean
+}
+
+export type DatoolViewerSettingsExportAction = {
+  id: string
+  label: string
+  disabled?: boolean
+  onSelect: () => void
+}
+
+export type DatoolViewerSettings = {
+  columns: DatoolViewerSettingsColumn[]
+  exportActions: DatoolViewerSettingsExportAction[]
+  groupedColumnIds: string[]
+  onClearGrouping: () => void
+  onToggleGrouping: (columnId: string, grouped: boolean) => void
+  onToggleColumn: (columnId: string, visible: boolean) => void
+}
+
+type DatoolViewerSettingsStore = {
+  ref: React.RefObject<DatoolViewerSettings | null>
+  listeners: Set<() => void>
+}
+
 type DatoolContextValue = {
   datool: InternalDatoolInstance<any>
   resetView: (queryId: string) => void
@@ -50,6 +78,8 @@ type DatoolContextValue = {
     source: DatoolSearchSourceValue
   ) => void
   viewRevisionByQueryId: Record<string, number>
+  viewerSettingsStore: DatoolViewerSettingsStore
+  setViewerSettings: (settings: DatoolViewerSettings | null) => void
 }
 
 export type DatoolQueryValue<
@@ -332,6 +362,14 @@ export function DatoolProvider({ children, datool }: DatoolProviderProps) {
   const [searchSourceByQueryId, setSearchSourceByQueryId] = React.useState<
     Record<string, DatoolSearchSourceValue | undefined>
   >({})
+  const viewerSettingsStoreRef = React.useRef<DatoolViewerSettingsStore | null>(null)
+  if (!viewerSettingsStoreRef.current) {
+    viewerSettingsStoreRef.current = {
+      ref: { current: null },
+      listeners: new Set(),
+    }
+  }
+  const viewerSettingsStore = viewerSettingsStoreRef.current
 
   const resetView = React.useCallback((queryId: string) => {
     setViewRevisionByQueryId((current) => ({
@@ -377,6 +415,13 @@ export function DatoolProvider({ children, datool }: DatoolProviderProps) {
     },
     []
   )
+  const setViewerSettings = React.useCallback(
+    (settings: DatoolViewerSettings | null) => {
+      viewerSettingsStore.ref.current = settings
+      viewerSettingsStore.listeners.forEach((listener) => listener())
+    },
+    [viewerSettingsStore]
+  )
 
   const value = React.useMemo(
     () => ({
@@ -385,7 +430,9 @@ export function DatoolProvider({ children, datool }: DatoolProviderProps) {
       resetView,
       searchSourceByQueryId,
       setSearchSource,
+      setViewerSettings,
       viewRevisionByQueryId,
+      viewerSettingsStore,
     }),
     [
       clearSearchSource,
@@ -393,21 +440,45 @@ export function DatoolProvider({ children, datool }: DatoolProviderProps) {
       resetView,
       searchSourceByQueryId,
       setSearchSource,
+      setViewerSettings,
       viewRevisionByQueryId,
+      viewerSettingsStore,
     ]
   )
 
   return <DatoolContext.Provider value={value}>{children}</DatoolContext.Provider>
 }
 
+export function useOptionalDatoolContext() {
+  return React.useContext(DatoolContext)
+}
+
 export function useDatoolContext() {
-  const context = React.useContext(DatoolContext)
+  const context = useOptionalDatoolContext()
 
   if (!context) {
     throw new Error("Datool hooks must be used inside DatoolProvider.")
   }
 
   return context
+}
+
+export function useDatoolViewerSettings(): DatoolViewerSettings | null {
+  const context = useOptionalDatoolContext()
+  const store = context?.viewerSettingsStore ?? null
+
+  return React.useSyncExternalStore(
+    React.useCallback(
+      (onStoreChange) => {
+        if (!store) return () => {}
+        store.listeners.add(onStoreChange)
+        return () => { store.listeners.delete(onStoreChange) }
+      },
+      [store]
+    ),
+    () => store?.ref.current ?? null,
+    () => null
+  )
 }
 
 export function useDatoolQuery<

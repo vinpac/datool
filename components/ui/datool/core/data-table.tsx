@@ -5,15 +5,20 @@ import * as React from "react"
 import {
   DataTable,
   DataTableProvider,
+  DataTableViewerSettingsContext,
   type DataTableColumnConfig,
+  type DataTableProps,
   type DataTableRowAction,
   type DataTableRowActionContext,
+  type DataTableSelectionMode,
+  type DataTableViewerSettings,
 } from "@/components/ui/datool/data-table"
 import { buildTableSearchFields } from "@/components/ui/datool/data-table/lib/data-table-filters"
 import type { SearchField } from "@/components/ui/datool/search-bar"
 
 import {
   useClearDatoolSearchSource,
+  useDatoolContext,
   useRegisterDatoolSearchSource,
   useDatoolSearch,
 } from "./provider"
@@ -22,12 +27,15 @@ import type { DatoolQueryActionContext } from "./types"
 export type DatoolDataTableProps<
   TRow extends Record<string, unknown> = Record<string, unknown>,
 > = {
+  cellEditors?: DataTableProps<TRow>["cellEditors"]
   columns: DataTableColumnConfig<TRow>[]
   query?: string
   rowClassName?: (row: TRow) => string | undefined
   rowHeight?: number
   rowStyle?: (row: TRow) => React.CSSProperties | undefined
+  selection?: DataTableSelectionMode
   showSelectionCheckbox?: boolean
+  onUpdate?: DataTableProps<TRow>["onUpdate"]
 }
 
 function toActionContext<
@@ -82,16 +90,26 @@ export function DatoolDataTable<
   TRow extends Record<string, unknown> = Record<string, unknown>,
 >({
   columns,
+  cellEditors,
   query,
   rowClassName,
   rowHeight = 48,
   rowStyle,
+  selection,
   showSelectionCheckbox = true,
+  onUpdate,
   ...props
 }: DatoolDataTableProps<TRow>) {
   const collection = useDatoolSearch<TData, TFilters, TState, TRow>(query)
+  const { setViewerSettings } = useDatoolContext()
   const clearSearchSource = useClearDatoolSearchSource()
   const registerSearchSource = useRegisterDatoolSearchSource<TRow>()
+  const handleViewerSettings = React.useCallback(
+    (settings: DataTableViewerSettings | null) => {
+      setViewerSettings(settings)
+    },
+    [setViewerSettings]
+  )
   const rowActions = React.useMemo<DataTableRowAction<TRow>[]>(() => {
     const actions = collection.definition.actions ?? []
 
@@ -167,7 +185,7 @@ export function DatoolDataTable<
 
   React.useEffect(() => {
     registerSearchSource(collection.id, searchFields)
-  }, [collection.id, registerSearchSource, searchFieldSignature])
+  }, [collection.id, registerSearchSource, searchFieldSignature, searchFields])
 
   React.useEffect(() => {
     return () => {
@@ -176,22 +194,27 @@ export function DatoolDataTable<
   }, [clearSearchSource, collection.id])
 
   return (
-    <DataTableProvider
-      {...props}
-      columns={columns}
-      data={collection.rows}
-      enableRowSelection={enableRowSelection}
-      getRowId={collection.definition.getRowId}
-      id={`datool-demo-${collection.id}`}
-      key={`${collection.id}:${collection.viewRevision}`}
-      onSearchChange={collection.search?.onChange}
-      rowActions={rowActions}
-      rowClassName={rowClassName}
-      rowHeight={rowHeight}
-      rowStyle={rowStyle}
-      search={collection.search?.value}
-    >
-      <DataTable />
-    </DataTableProvider>
+    <DataTableViewerSettingsContext.Provider value={handleViewerSettings}>
+      <DataTableProvider
+        {...props}
+        cellEditors={cellEditors}
+        columns={columns}
+        data={collection.rows}
+        enableRowSelection={enableRowSelection}
+        getRowId={collection.definition.getRowId}
+        id={`datool-demo-${collection.id}`}
+        key={`${collection.id}:${collection.viewRevision}`}
+        onUpdate={onUpdate}
+        onSearchChange={collection.search?.onChange}
+        rowActions={rowActions}
+        rowClassName={rowClassName}
+        rowHeight={rowHeight}
+        rowStyle={rowStyle}
+        search={collection.search?.value}
+        selection={selection}
+      >
+        <DataTable />
+      </DataTableProvider>
+    </DataTableViewerSettingsContext.Provider>
   )
 }

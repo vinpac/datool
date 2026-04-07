@@ -10,11 +10,11 @@ import { Eye, RotateCcw, Sparkles } from "lucide-react"
 import type { DataTableColumnConfig } from "@/components/ui/datool/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import {
-  ClearButton,
   DatoolDataTable,
   DatoolInfoTable,
   DatoolProvider,
   ErrorMessage,
+  QuerySettings,
   RefreshButton,
   SearchBar,
   useDatool,
@@ -95,9 +95,15 @@ const INITIAL_STATE = {
 }
 
 const PROMPT_COLUMNS: DataTableColumnConfig<Prompt>[] = [
-  { accessorKey: "title", header: "Title" },
-  { accessorKey: "status", header: "Status", kind: "enum" },
-  { accessorKey: "owner", header: "Owner" },
+  { accessorKey: "title", editable: true, header: "Title" },
+  {
+    accessorKey: "status",
+    editable: true,
+    enumOptions: ["active", "draft", "review"],
+    header: "Status",
+    kind: "enum",
+  },
+  { accessorKey: "owner", editable: true, header: "Owner" },
   {
     accessorKey: "updatedAt",
     dateFormat: { relative: true },
@@ -126,7 +132,7 @@ function DetailPanel() {
       {prompt ? (
         <>
           <h2 className="font-serif font-semibold text-xl leading-tight mb-1">{prompt.title}</h2>
-          <DatoolInfoTable columns={PROMPT_COLUMNS} query="promptDetail" />
+          <DatoolInfoTable columns={PROMPT_COLUMNS} headers={["Title", "Status"]} query="promptDetail" />
           <p className="text-black/80">{prompt.content}</p>
         </>
       ) : (
@@ -154,6 +160,74 @@ function DatoolDemo() {
   const bumpRevision = React.useCallback(() => {
     setRevision((current) => current + 1)
   }, [])
+  const handleUpdate = React.useCallback(
+    async (
+      changes: Array<{
+        data: Record<string, string>
+        row: Prompt
+        rowId: string
+      }>
+    ) => {
+      await delay(120)
+
+      const nextPatches = changes.map((change) => ({
+        data: {
+          ...change.data,
+          updatedAt: new Date().toISOString(),
+        },
+        rowId: change.rowId,
+      }))
+
+      setPrompts((current) =>
+        current.map((prompt) => {
+          const patch = nextPatches.find((candidate) => candidate.rowId === prompt.id)
+
+          return patch
+            ? {
+                ...prompt,
+                ...patch.data,
+              }
+            : prompt
+        })
+      )
+      queryClient.setQueryData(
+        ["prompts", promptSearch, promptStatus, revision],
+        (current: Prompt[] | undefined) =>
+          current?.map((prompt) => {
+            const patch = nextPatches.find((candidate) => candidate.rowId === prompt.id)
+
+            return patch
+              ? {
+                  ...prompt,
+                  ...patch.data,
+                }
+              : prompt
+          }) ?? current
+      )
+
+      if (selectedPromptId) {
+        const selectedPatch = nextPatches.find(
+          (candidate) => candidate.rowId === selectedPromptId
+        )
+
+        if (selectedPatch) {
+          queryClient.setQueryData(
+            ["promptDetail", selectedPromptId, revision],
+            (current: Prompt | null | undefined) =>
+              current
+                ? {
+                    ...current,
+                    ...selectedPatch.data,
+                  }
+                : current
+          )
+        }
+      }
+
+      return nextPatches
+    },
+    [promptSearch, promptStatus, revision, selectedPromptId]
+  )
 
   const promptsQuery = useQuery({
     queryFn: async () => {
@@ -287,16 +361,18 @@ function DatoolDemo() {
         {/* Data Table Section */}
         <ResizablePanelGroup orientation="horizontal">
           <ResizablePanel>
-            <header className="flex gap-3 items-center px-3 py-2">
+            <header className="flex gap-2 items-center px-3 py-2">
               <SearchBar />
                 <RefreshButton />
-                <ClearButton />
+                <QuerySettings />
             </header>
 
               <ErrorMessage />
 
             <DatoolDataTable
               columns={PROMPT_COLUMNS}
+              onUpdate={handleUpdate}
+              selection="cell"
             />
           </ResizablePanel>
           <ResizableHandle />

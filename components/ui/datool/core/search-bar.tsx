@@ -7,7 +7,7 @@ export function SearchBar({
   className,
   placeholder = "Search data...",
   query,
-  showLoadingOnRefetch = true,
+  showLoadingOnRefetch = false,
 }: {
   className?: string
   placeholder?: string

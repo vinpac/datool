@@ -124,10 +124,16 @@ export function DataTableCheckbox({
 
 type DataTableBodyCellProps<TData> = {
   cell: Cell<TData, unknown>
+  cellProps?: React.TdHTMLAttributes<HTMLTableCellElement> &
+    Partial<Record<`data-${string}`, string | undefined>>
   dateFormat?: DatoolDateFormat
   highlightTerms?: string[]
+  isActive?: boolean
+  isEditing?: boolean
+  isSelected?: boolean
   paddingLeft?: React.CSSProperties["paddingLeft"]
   paddingRight?: React.CSSProperties["paddingRight"]
+  renderContent?: React.ReactNode
   width: number
 }
 
@@ -197,6 +203,7 @@ function areColumnMetaEqual(
     left.align === right.align &&
     left.cellClassName === right.cellClassName &&
     areDateFormatsEqual(left.dateFormat, right.dateFormat) &&
+    left.editable === right.editable &&
     areRecordValuesEqual(left.enumColors, right.enumColors) &&
     areStringArraysEqual(left.enumOptions, right.enumOptions) &&
     left.enumVariant === right.enumVariant &&
@@ -248,10 +255,15 @@ function areCellsEquivalent<TData>(
 
 function DataTableBodyCellInner<TData>({
   cell,
+  cellProps,
   dateFormat,
   highlightTerms = [],
+  isActive = false,
+  isEditing = false,
+  isSelected = false,
   paddingLeft,
   paddingRight,
+  renderContent,
   width,
 }: DataTableBodyCellProps<TData>) {
   const meta = (cell.column.columnDef.meta ?? {}) as DataTableColumnMeta
@@ -266,7 +278,7 @@ function DataTableBodyCellInner<TData>({
     typeof rawValue === "string" &&
     highlightTerms.length > 0
   const resolvedDateFormat = meta.dateFormat ?? dateFormat
-  const content = shouldHighlight
+  const content = renderContent ?? (shouldHighlight
     ? renderHighlightedText(rawValue, highlightTerms, rendered)
     : (rendered ??
       renderDataCellValue({
@@ -276,16 +288,23 @@ function DataTableBodyCellInner<TData>({
         enumVariant: meta.enumVariant,
         type: meta.kind,
         value: rawValue,
-      }))
+      })))
 
   return (
     <td
+      {...cellProps}
       data-column-id={cell.column.id}
       data-sticky-cell={isSticky ? "true" : "false"}
+      data-active={isActive ? "true" : undefined}
+      data-editing={isEditing ? "true" : undefined}
+      data-selected={isSelected ? "true" : undefined}
       className={cn(
         "border-border px-2 py-1.5 text-sm text-foreground flex shrink-0 border-b align-middle",
         getAlignmentClassName(meta.align),
         isSticky && "left-0 border-r-border bg-card sticky z-10 border-r",
+        isSelected && "bg-primary/5",
+        isActive && "relative z-10 ring-inset",
+        isEditing && "bg-background",
         meta.cellClassName
       )}
       style={{
@@ -295,6 +314,7 @@ function DataTableBodyCellInner<TData>({
       }}
     >
       <div
+        data-cell-content="true"
         className={cn(
           isSelectionCell
             ? "flex w-full items-center justify-center"
@@ -318,6 +338,11 @@ const MemoizedDataTableBodyCell = React.memo(
     previousProps.width === nextProps.width &&
     previousProps.paddingLeft === nextProps.paddingLeft &&
     previousProps.paddingRight === nextProps.paddingRight &&
+    previousProps.cellProps === nextProps.cellProps &&
+    previousProps.isActive === nextProps.isActive &&
+    previousProps.isEditing === nextProps.isEditing &&
+    previousProps.isSelected === nextProps.isSelected &&
+    previousProps.renderContent === nextProps.renderContent &&
     areDateFormatsEqual(previousProps.dateFormat, nextProps.dateFormat) &&
     areStringArraysEqual(
       previousProps.highlightTerms,
